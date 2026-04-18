@@ -26,7 +26,7 @@
     window.__SUPABASE_KEY__ = "sb_publishable_b6ZEtYrgGIQT8WxkahGzZg_iHTYMasi";
   </script>
 
-  <script type="text/babel" data-presets="react,env">
+  <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 // ─── Supabase client (injected via window.__SUPABASE_URL__ / __SUPABASE_KEY__) ──
@@ -216,7 +216,7 @@ function exportToPDF(employees, schedule, weekDates, shiftNames, shiftHours, wee
 <meta charset="UTF-8">
 <title>סידור עבודה — ${weekLabel}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;600;700;800&display=swap');
+  
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Heebo', sans-serif; background: white; color: #1e293b; padding: 32px; }
   @media print {
