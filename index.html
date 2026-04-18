@@ -6,6 +6,11 @@
 <title>ShiftPro</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0F172A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ShiftPro">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:Heebo,sans-serif}
 body{background:#0F172A;color:#E2E8F0;min-height:100vh}
@@ -459,6 +464,16 @@ async function checkAuth() {
   await loadAll(session.user);
 }
 
+function generateInviteCode(businessId) {
+  // Simple deterministic code from business ID
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += chars[(businessId.charCodeAt(i % businessId.length) + i * 7) % chars.length];
+  }
+  return code;
+}
+
 async function loadAll(user) {
   S.user = user;
   const { data: profile } = await sb.from("profiles")
@@ -466,6 +481,7 @@ async function loadAll(user) {
   if (!profile) { S.view="login"; render(); return; }
   S.profile = profile;
   S.business = profile.business;
+  S.inviteCode = profile.business_id ? generateInviteCode(profile.business_id) : null;
 
   await Promise.all([loadEmployees(), loadVacations(), loadSwapRequests(), loadSchedule()]);
   S.view = "home"; render();
@@ -562,13 +578,23 @@ async function handleLogin(email, password) {
   await loadAll(user);
 }
 
-async function handleRegister(name, businessName, email, password) {
+async function handleRegister(name, businessName, email, password, inviteCode) {
   const {data:auth, error:ae} = await sb.auth.signUp({email,password,options:{data:{name}}});
   if(ae) throw ae;
-  const {data:biz, error:be} = await sb.from("businesses")
-    .insert({name:businessName, owner_id:auth.user.id}).select().single();
-  if(be) throw be;
-  await sb.from("profiles").update({business_id:biz.id, role:"admin", name}).eq("id", auth.user.id);
+
+  if (inviteCode) {
+    // Employee joining with invite code — find matching business
+    const {data:businesses} = await sb.from("businesses").select("id,name");
+    const matchBiz = (businesses||[]).find(b => generateInviteCode(b.id) === inviteCode.toUpperCase());
+    if (!matchBiz) throw new Error("קוד הזמנה לא תקין");
+    await sb.from("profiles").update({business_id:matchBiz.id, role:"employee", name}).eq("id", auth.user.id);
+  } else {
+    // Manager creating new business
+    const {data:biz, error:be} = await sb.from("businesses")
+      .insert({name:businessName, owner_id:auth.user.id}).select().single();
+    if(be) throw be;
+    await sb.from("profiles").update({business_id:biz.id, role:"admin", name}).eq("id", auth.user.id);
+  }
   await loadAll(auth.user);
 }
 
@@ -711,6 +737,7 @@ function viewLoading() {
 // ── LOGIN ──
 function viewLogin() {
   const isReg = S.loginMode === "register";
+  const isEmpReg = S.loginMode === "emp_register";
   const wrap = e("div",{class:"login-wrap"});
   const card = e("div",{class:"login-card"});
 
@@ -734,9 +761,17 @@ function viewLogin() {
     try {
       if (isReg) await handleRegister(
         form.querySelector("[name=name]").value,
-        form.querySelector("[name=biz]").value,
+        form.querySelector("[name=biz]")?.value||"",
         form.querySelector("[name=email]").value,
-        form.querySelector("[name=pass]").value
+        form.querySelector("[name=pass]").value,
+        null
+      );
+      else if (isEmpReg) await handleRegister(
+        form.querySelector("[name=name]").value,
+        "",
+        form.querySelector("[name=email]").value,
+        form.querySelector("[name=pass]").value,
+        form.querySelector("[name=invite]").value
       );
       else await handleLogin(
         form.querySelector("[name=email]").value,
@@ -751,16 +786,32 @@ function viewLogin() {
   if (isReg) {
     form.appendChild(loginField("שם מלא","name","text","ישראל ישראלי",true));
     form.appendChild(loginField("שם העסק","biz","text","החברה שלי",true));
+  } else if (isEmpReg) {
+    form.appendChild(loginField("שם מלא","name","text","ישראל ישראלי",true));
+    form.appendChild(loginField("קוד הזמנה","invite","text","XXXXXX",true));
   }
   form.appendChild(loginField("אימייל","email","email","you@example.com",true));
   form.appendChild(loginField("סיסמה","pass","password","••••••••",true));
-  form.appendChild(e("button",{type:"submit",class:"btn-primary"},isReg?"צור חשבון →":"כניסה →"));
+  form.appendChild(e("button",{type:"submit",class:"btn-primary"},
+    isReg?"צור חשבון מנהל →":isEmpReg?"הצטרף כעובד →":"כניסה →"));
   card.appendChild(form);
 
-  card.appendChild(div("switch-link",[
-    isReg?"יש לך חשבון? ":"עסק חדש? ",
-    e("a",{onclick:()=>{S.loginMode=isReg?"login":"register";render();}},isReg?"כניסה →":"הרשמה חינם →")
-  ]));
+  // Switch links
+  if (!isReg && !isEmpReg) {
+    card.appendChild(div("switch-link",[
+      "עסק חדש? ",
+      e("a",{onclick:()=>{S.loginMode="register";render();}},"הרשמת מנהל →")
+    ]));
+    card.appendChild(div("switch-link",[
+      "עובד? ",
+      e("a",{onclick:()=>{S.loginMode="emp_register";render();}},"הצטרף עם קוד →")
+    ]));
+  } else {
+    card.appendChild(div("switch-link",[
+      "יש לך חשבון? ",
+      e("a",{onclick:()=>{S.loginMode="login";render();}},"כניסה →")
+    ]));
+  }
   wrap.appendChild(card);
   return wrap;
 }
@@ -778,13 +829,15 @@ function viewHeader() {
   const pendingSwaps = S.swapRequests.filter(s=>s.status==="pending_manager").length;
 
   const tabs = [
-    {id:"home",  icon:"🏠", label:"בית"},
+    {id:"home",     icon:"🏠", label:"בית"},
     {id:"schedule", icon:"📅", label:"סידור"},
-    {id:"employees", icon:"👥", label:"עובדים"},
-    {id:"vacations", icon:"🌴", label:"חופשות", badge:pendingVacs},
-    {id:"swaps",  icon:"🔄", label:"חילופים", badge:pendingSwaps, badgeClass:"badge-purple"},
-    {id:"stats",  icon:"📊", label:"נתונים"},
-    {id:"empview", icon:"👤", label:"עובד"},
+    {id:"calendar", icon:"🗓️", label:"חודש"},
+    {id:"employees",icon:"👥", label:"עובדים"},
+    {id:"vacations",icon:"🌴", label:"חופשות", badge:pendingVacs},
+    {id:"swaps",    icon:"🔄", label:"חילופים", badge:pendingSwaps, badgeClass:"badge-purple"},
+    {id:"stats",    icon:"📊", label:"נתונים"},
+    {id:"empview",  icon:"👤", label:"עובד"},
+    {id:"settings", icon:"⚙️", label:"הגדרות"},
   ];
 
   const isMobile = typeof window !== "undefined" && window.innerWidth <= 640;
@@ -1118,7 +1171,16 @@ function viewEmployees() {
   const wrap = e("div");
   wrap.appendChild(div("section-header",[
     div("page-title",["👥 עובדים"]),
-    btn("btn-add","+ הוסף עובד",()=>{S.showAddEmp=!S.showAddEmp;render();})
+    e("div",{style:"display:flex;gap:8px;align-items:center"},[
+      S.inviteCode ? e("div",{style:"background:#3B82F622;border:1px solid #3B82F644;border-radius:10px;padding:7px 14px;display:flex;align-items:center;gap:8px"},[
+        e("span",{style:"font-size:11px;color:#64748B"},"קוד הזמנה:"),
+        e("span",{style:"font-weight:900;font-size:16px;color:#60A5FA;letter-spacing:2px"},S.inviteCode),
+        e("button",{style:"background:none;border:none;color:#64748B;cursor:pointer;font-size:13px",
+          onclick:()=>{navigator.clipboard?.writeText(S.inviteCode).then(()=>toast("קוד הועתק ✓"));}
+        },"📋")
+      ]) : null,
+      btn("btn-add","+ הוסף עובד",()=>{S.showAddEmp=!S.showAddEmp;render();})
+    ])
   ]));
 
   // Add form
@@ -1836,6 +1898,359 @@ function viewPublishModal() {
 }
 
 // ══════════════════════════════════════════════════════
+// EXPORT
+// ══════════════════════════════════════════════════════
+function exportSchedulePDF() {
+  const wd = getWeekDates(S.weekOffset);
+  const weekLabel = fmtDate(wd[0]) + " — " + fmtDate(wd[6]);
+
+  let html = `<!DOCTYPE html><html dir="rtl" lang="he">
+<head><meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  body{font-family:Heebo,sans-serif;direction:rtl;padding:20px;color:#1a1a2e;background:white}
+  h1{font-weight:900;font-size:22px;margin-bottom:4px}
+  .sub{color:#666;font-size:13px;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{background:#1E293B;color:white;padding:8px 6px;text-align:center;font-weight:700}
+  th:first-child{text-align:right}
+  td{padding:7px 5px;border:1px solid #ddd;text-align:center;vertical-align:top}
+  td:first-child{text-align:right;font-weight:700;white-space:nowrap}
+  .chip{display:inline-block;border-radius:4px;padding:2px 6px;margin:1px;font-size:10px;font-weight:700}
+  .morning{background:#FEF3C7;color:#92400E}
+  .afternoon{background:#D1FAE5;color:#065F46}
+  .night{background:#EDE9FE;color:#4C1D95}
+  .empty{color:#ccc;font-size:11px}
+  @media print{body{padding:0}}
+</style></head><body>
+<h1>סידור עבודה — ${S.business?.name||"ShiftPro"}</h1>
+<div class="sub">${weekLabel}</div>
+<table>
+<tr><th>משמרת</th>`;
+
+  wd.forEach(date => {
+    const dt = new Date(date+"T00:00:00");
+    html += `<th>${DAYS[dt.getDay()]}<br><strong>${dt.getDate()}</strong></th>`;
+  });
+  html += "</tr>";
+
+  SHIFTS.forEach(sh => {
+    html += `<tr><td class="${sh.id}">${sh.label}<br><small>${sh.start}–${sh.end}</small></td>`;
+    wd.forEach(date => {
+      const empIds = S.schedule[date]?.[sh.id]||[];
+      html += "<td>";
+      if (empIds.length === 0) {
+        html += '<span class="empty">—</span>';
+      } else {
+        empIds.forEach(id => {
+          const emp = getEmp(id);
+          const ch = S.customHours[date+"|"+sh.id+"|"+id];
+          html += `<span class="chip ${sh.id}">${emp?.name||"?"}</span>`;
+          if (ch) html += `<br><small style="font-size:9px;color:#666">${ch.start}–${ch.end}</small>`;
+        });
+      }
+      html += "</td>";
+    });
+    html += "</tr>";
+  });
+  html += `</table>
+<div style="margin-top:16px;font-size:11px;color:#999">הופק מ-ShiftPro · ${new Date().toLocaleDateString("he-IL")}</div>
+</body></html>`;
+
+  const win = window.open("","_blank");
+  if (!win) { toast("אפשר חלונות קופצים בדפדפן","err"); return; }
+  win.document.write(html);
+  win.document.close();
+  setTimeout(()=>win.print(), 500);
+  toast("פותח לייצוא PDF ✓");
+}
+
+function exportScheduleCSV() {
+  const wd = getWeekDates(S.weekOffset);
+  let csv = "\u05de\u05e9\u05de\u05e8\u05ea,\u05e9\u05e2\u05d5\u05ea,"+wd.map(d=>{const dt=new Date(d+"T00:00:00");return DAYS[dt.getDay()]+" "+dt.getDate();}).join(",")+String.fromCharCode(10);
+  SHIFTS.forEach(sh => {
+    const row = [sh.label, sh.start+"–"+sh.end];
+    wd.forEach(date => {
+      const empIds = S.schedule[date]?.[sh.id]||[];
+      row.push(empIds.map(id=>getEmp(id)?.name||"?").join(" + ")||"—");
+    });
+    csv += row.map(v=>"\""+v+"\"").join(",") + String.fromCharCode(10);
+  });
+  const blob = new Blob(["﻿"+csv], {type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href=url; a.download=`seder_avoda_${getWeekDates(S.weekOffset)[0]}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast("קובץ CSV הורד ✓");
+}
+
+// ══════════════════════════════════════════════════════
+// SETTINGS VIEW
+// ══════════════════════════════════════════════════════
+function viewSettings() {
+  const wrap = e("div");
+  wrap.appendChild(div("page-title",["⚙️ הגדרות"],{style:"margin-bottom:16px"}));
+
+  // Business settings
+  const bizCard = div("card",[e("div",{class:"card-title"},"🏢 פרטי עסק")]);
+  if (!S.settingsData) S.settingsData = {
+    bizName: S.business?.name||"",
+    morningStart:"07:00",morningEnd:"15:00",
+    afternoonStart:"15:00",afternoonEnd:"23:00",
+    nightStart:"23:00",nightEnd:"07:00",
+    emailNotify: true,
+  };
+  const sd = S.settingsData;
+
+  bizCard.appendChild(div("form-col",[
+    e("label",{class:"form-label"},"שם העסק"),
+    e("input",{class:"fi",value:sd.bizName,oninput:ev=>{sd.bizName=ev.target.value},style:"margin-bottom:12px"})
+  ],{style:"margin-bottom:12px"}));
+
+  bizCard.appendChild(btn("btn-add","שמור שם עסק",async()=>{
+    if(!sd.bizName.trim()){toast("נא להזין שם","err");return;}
+    await sb.from("businesses").update({name:sd.bizName}).eq("id",S.profile.business_id);
+    S.business.name=sd.bizName;
+    toast("שם עסק עודכן ✓");render();
+  }));
+  wrap.appendChild(bizCard);
+
+  // Shift hours settings
+  const shiftCard = div("card",[e("div",{class:"card-title"},"🕐 שעות משמרות")]);
+  const shiftDefs = [
+    {id:"morning",label:"בוקר",sk:"morning"},
+    {id:"afternoon",label:"צהריים",sk:"afternoon"},
+    {id:"night",label:"לילה",sk:"night"},
+  ];
+  shiftDefs.forEach(sh=>{
+    shiftCard.appendChild(e("div",{style:"margin-bottom:12px"},[
+      e("div",{style:"font-weight:700;font-size:13px;color:"+SHIFT_BY_ID[sh.id].color+";margin-bottom:6px"},sh.label),
+      div("form-row",[
+        div("form-col",[e("label",{class:"form-label"},"התחלה"),e("input",{class:"fi",type:"time",value:sd[sh.sk+"Start"]||SHIFT_BY_ID[sh.id].start,onchange:ev=>{sd[sh.sk+"Start"]=ev.target.value}})]),
+        div("form-col",[e("label",{class:"form-label"},"סיום"),e("input",{class:"fi",type:"time",value:sd[sh.sk+"End"]||SHIFT_BY_ID[sh.id].end,onchange:ev=>{sd[sh.sk+"End"]=ev.target.value}})])
+      ])
+    ]));
+  });
+  shiftCard.appendChild(btn("btn-add","שמור שעות",()=>{
+    SHIFTS[0].start=sd.morningStart;SHIFTS[0].end=sd.morningEnd;
+    SHIFTS[1].start=sd.afternoonStart;SHIFTS[1].end=sd.afternoonEnd;
+    SHIFTS[2].start=sd.nightStart;SHIFTS[2].end=sd.nightEnd;
+    toast("שעות עודכנו ✓");render();
+  }));
+  wrap.appendChild(shiftCard);
+
+  // Export
+  const expCard = div("card",[e("div",{class:"card-title"},"📤 ייצוא סידור")]);
+  expCard.appendChild(e("div",{style:"color:#64748B;font-size:13px;margin-bottom:14px"},"ייצא את הסידור השבועי הנוכחי"));
+  expCard.appendChild(div("form-actions",[
+    btn("btn-green","🖨️ ייצוא PDF / הדפסה",exportSchedulePDF,{style:"flex:1"}),
+    btn("btn-sm btn-sm-blue","📊 ייצוא CSV",exportScheduleCSV,{style:"flex:1"})
+  ]));
+  wrap.appendChild(expCard);
+
+  // Email notifications
+  const emailCard = div("card",[e("div",{class:"card-title"},"🔔 התראות")]);
+  emailCard.appendChild(e("div",{style:"background:#F59E0B18;border:1px solid #F59E0B33;border-radius:10px;padding:12px 14px;margin-bottom:12px"},[
+    e("div",{style:"font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:4px"},"📧 התראות אימייל"),
+    e("div",{style:"font-size:12px;color:#94A3B8"},"התראות אימייל דורשות שרת SMTP. ניתן לשלב עם Supabase Edge Functions.")
+  ]));
+
+  const notifItems = [
+    {id:"notif_publish",label:"פרסום סידור לעובדים",sub:"עובדים מקבלים מייל כשסידור פורסם"},
+    {id:"notif_vac_approved",label:"אישור / דחיית חופשה",sub:"עובד מקבל מייל על תשובת הבקשה"},
+    {id:"notif_swap",label:"בקשת חילוף חדשה",sub:"מנהל מקבל מייל על בקשת חילוף"},
+  ];
+  notifItems.forEach(item=>{
+    const stored = localStorage.getItem(item.id);
+    const isOn = stored === null ? true : stored === "1";
+    emailCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A"},[
+      e("div",{},[
+        e("div",{style:"font-weight:600;font-size:13px;color:#E2E8F0"},item.label),
+        e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},item.sub)
+      ]),
+      e("button",{
+        style:`width:44px;height:24px;border-radius:12px;border:none;background:${isOn?"#10B981":"#334155"};position:relative;cursor:pointer;transition:background 0.2s`,
+        onclick:(ev)=>{
+          const newVal = !isOn;
+          localStorage.setItem(item.id, newVal?"1":"0");
+          ev.currentTarget.style.background = newVal?"#10B981":"#334155";
+          ev.currentTarget.querySelector("span").style.right = newVal?"2px":"20px";
+        }
+      },[e("span",{style:`position:absolute;top:2px;right:${isOn?"2px":"20px"};width:20px;height:20px;border-radius:50%;background:white;transition:right 0.2s`})])
+    ]));
+  });
+  wrap.appendChild(emailCard);
+
+  // PWA install
+  const pwaCard = div("card",[e("div",{class:"card-title"},"📱 התקנה על הטלפון")]);
+  pwaCard.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"התקן את ShiftPro כאפליקציה על מסך הבית שלך"));
+
+  if (S.pwaPrompt) {
+    pwaCard.appendChild(btn("btn-purple","📱 התקן אפליקציה",async()=>{
+      S.pwaPrompt.prompt();
+      const {outcome}=await S.pwaPrompt.userChoice;
+      if(outcome==="accepted"){S.pwaPrompt=null;toast("אפליקציה הותקנה ✓");}
+      render();
+    },{style:"width:100%"}));
+  } else {
+    pwaCard.appendChild(e("div",{style:"background:#1E3A5F;border-radius:10px;padding:14px"},[
+      e("div",{style:"font-weight:700;font-size:13px;color:#60A5FA;margin-bottom:8px"},"כיצד להתקין:"),
+      e("div",{style:"font-size:12px;color:#94A3B8;line-height:1.8"},[
+        e("div",{},"📱 iPhone: לחץ על שתף ← הוסף למסך הבית"),
+        e("div",{},"🤖 Android: לחץ על תפריט ← הוסף למסך הבית"),
+        e("div",{},"💻 Chrome: לחץ על + בשורת הכתובת")
+      ])
+    ]));
+  }
+  wrap.appendChild(pwaCard);
+
+  // Danger zone
+  const dangerCard = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#EF4444;margin-bottom:12px"},"⚠️ אזור מסוכן")]);
+  dangerCard.appendChild(btn("btn-sm btn-sm-red","יציאה מהמערכת",handleLogout,{style:"margin-bottom:8px;width:100%"}));
+  wrap.appendChild(dangerCard);
+
+  return wrap;
+}
+
+// ══════════════════════════════════════════════════════
+// CALENDAR VIEW
+// ══════════════════════════════════════════════════════
+function viewCalendar() {
+  const wrap = e("div");
+  const now = new Date();
+  const year = now.getFullYear() + Math.floor((now.getMonth() + S.monthOffset) / 12);
+  const month = ((now.getMonth() + S.monthOffset) % 12 + 12) % 12;
+  const monthName = new Date(year, month, 1).toLocaleDateString("he-IL", {month:"long", year:"numeric"});
+
+  // Header
+  wrap.appendChild(div("section-header",[
+    div("page-title",["🗓️ "+monthName]),
+    e("div",{style:"display:flex;gap:8px"},[
+      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset--;render();}},"←"),
+      e("button",{class:"btn-sm btn-sm-blue",onclick:()=>{S.monthOffset=0;render();}},"החודש"),
+      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset++;render();}},"→")
+    ])
+  ]));
+
+  // Employee filter
+  const filterWrap = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"});
+  filterWrap.appendChild(e("button",{
+    style:`padding:5px 12px;border-radius:8px;border:1px solid ${S.calFilterEmp===null?"#3B82F6":"#334155"};background:${S.calFilterEmp===null?"#3B82F622":"#1E293B"};color:${S.calFilterEmp===null?"#60A5FA":"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
+    onclick:()=>{S.calFilterEmp=null;render();}
+  },"כולם"));
+  S.employees.forEach((emp,idx)=>{
+    const col=ec(idx);
+    const sel=S.calFilterEmp===emp.id;
+    filterWrap.appendChild(e("button",{
+      style:`padding:5px 12px;border-radius:8px;border:1px solid ${sel?col+"aa":col+"44"};background:${sel?col+"33":"#1E293B"};color:${sel?col:"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
+      onclick:()=>{S.calFilterEmp=sel?null:emp.id;render();}
+    },emp.name.split(" ")[0]));
+  });
+  wrap.appendChild(filterWrap);
+
+  // Build calendar grid
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month+1, 0);
+  const startDow = firstDay.getDay(); // 0=Sun
+  const totalDays = lastDay.getDate();
+
+  // Collect all schedules for this month
+  const allDates = [];
+  for (let d=1; d<=totalDays; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    allDates.push(dateStr);
+  }
+
+  const calCard = div("card");
+  calCard.style.padding = "12px";
+
+  // Day headers
+  const hdrRow = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px"});
+  DAYS.forEach(d=>hdrRow.appendChild(e("div",{style:"text-align:center;font-size:11px;font-weight:700;color:#64748B;padding:4px 0"},d)));
+  calCard.appendChild(hdrRow);
+
+  // Grid
+  const grid = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px"});
+
+  // Empty cells before first day
+  for (let i=0; i<startDow; i++) {
+    grid.appendChild(e("div",{style:"min-height:80px"}));
+  }
+
+  allDates.forEach(dateStr => {
+    const d = new Date(dateStr+"T00:00:00");
+    const isToday = dateStr === new Date().toISOString().split("T")[0];
+    const isWeekend = d.getDay() === 5 || d.getDay() === 6;
+
+    // Get vacations for this day
+    const dayVacs = S.vacations.filter(v=>v.status==="approved"&&dateStr>=v.start_date&&dateStr<=v.end_date);
+
+    // Get assignments
+    const dayAssignments = {};
+    SHIFTS.forEach(sh=>{
+      const empIds = (S.schedule[dateStr]?.[sh.id]||[]);
+      const filtered = S.calFilterEmp ? empIds.filter(id=>id===S.calFilterEmp) : empIds;
+      if (filtered.length>0) dayAssignments[sh.id]=filtered;
+    });
+
+    const cell = e("div",{
+      style:`min-height:80px;background:${isToday?"#1E3A5F":isWeekend?"#1A2234":"#1E293B"};border-radius:8px;padding:4px;border:1px solid ${isToday?"#3B82F6":"#334155"};cursor:pointer`,
+      onclick:()=>{
+        // Navigate to week containing this date
+        const d2=new Date(dateStr+"T00:00:00");
+        const today2=new Date();
+        today2.setHours(0,0,0,0);
+        const diffDays=Math.round((d2-today2)/(1000*60*60*24));
+        const diffWeeks=Math.floor(diffDays/7);
+        S.weekOffset=diffWeeks;
+        S.view="schedule";
+        loadSchedule().then(()=>render());
+      }
+    });
+
+    // Date number
+    cell.appendChild(e("div",{style:`font-size:13px;font-weight:${isToday?"900":"600"};color:${isToday?"#60A5FA":isWeekend?"#94A3B8":"#E2E8F0"};margin-bottom:3px`},String(d.getDate())));
+
+    // Shift indicators
+    Object.entries(dayAssignments).forEach(([shId,empIds])=>{
+      const sh=SHIFT_BY_ID[shId];
+      const row=e("div",{style:`display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px`});
+      empIds.slice(0,3).forEach(empId=>{
+        const empI=empIdx(empId);
+        const col=ec(empI);
+        const emp=getEmp(empId);
+        row.appendChild(e("div",{style:`background:${col}22;border:1px solid ${col}44;border-radius:4px;padding:1px 4px;font-size:9px;font-weight:700;color:${col}`},emp?.name.split(" ")[0]||"?"));
+      });
+      if(empIds.length>3) row.appendChild(e("div",{style:"font-size:9px;color:#64748B"},`+${empIds.length-3}`));
+      cell.appendChild(row);
+    });
+
+    // Vacation indicators
+    dayVacs.slice(0,2).forEach(v=>{
+      const emp=getEmp(v.employee_id);
+      if(!emp) return;
+      cell.appendChild(e("div",{style:"font-size:9px;color:#F59E0B;background:#F59E0B11;border-radius:4px;padding:1px 4px;margin-top:1px"},"🌴 "+emp.name.split(" ")[0]));
+    });
+
+    grid.appendChild(cell);
+  });
+
+  calCard.appendChild(grid);
+  wrap.appendChild(calCard);
+
+  // Legend
+  const legend = div("",[ 
+    e("div",{style:"display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:#64748B"},[
+      e("span",{},"לחץ על יום לעבור לסידור השבועי"),
+      e("span",{style:"color:#F59E0B"},"🌴 = חופשה מאושרת"),
+      ...SHIFTS.map(sh=>e("span",{style:"color:"+sh.color},`● ${sh.label}`))
+    ])
+  ]);
+  wrap.appendChild(legend);
+  return wrap;
+}
+
+// ══════════════════════════════════════════════════════
 // RENDER
 // ══════════════════════════════════════════════════════
 function render() {
@@ -1851,11 +2266,13 @@ function render() {
 
     if (S.view==="home")       main.appendChild(viewHome());
     else if(S.view==="schedule")  main.appendChild(viewSchedule());
+    else if(S.view==="calendar")  main.appendChild(viewCalendar());
     else if(S.view==="employees") main.appendChild(viewEmployees());
     else if(S.view==="vacations") main.appendChild(viewVacations());
     else if(S.view==="swaps")     main.appendChild(viewSwaps());
     else if(S.view==="stats")     main.appendChild(viewStats());
     else if(S.view==="empview")   main.appendChild(viewEmpView());
+    else if(S.view==="settings")  main.appendChild(viewSettings());
 
     appWrap.appendChild(main);
     app.appendChild(appWrap);
@@ -1873,9 +2290,9 @@ function render() {
     const bottomTabs = [
       {id:"home",icon:"🏠",label:"בית"},
       {id:"schedule",icon:"📅",label:"סידור"},
+      {id:"calendar",icon:"🗓️",label:"חודש"},
       {id:"employees",icon:"👥",label:"עובדים"},
       {id:"vacations",icon:"🌴",label:"חופשות",badge:pendingVacs2},
-      {id:"empview",icon:"👤",label:"עובד"},
     ];
     bottomTabs.forEach(t => {
       const isActive = S.view===t.id;
@@ -1896,6 +2313,17 @@ function render() {
   if(S.toast) {
     app.appendChild(e("div",{class:"toast"+(S.toast.type==="err"?" err":"")},S.toast.msg));
   }
+}
+
+// PWA install prompt
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  S.pwaPrompt = e;
+});
+
+// Service worker registration
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
 
 // INIT
