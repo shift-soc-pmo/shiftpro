@@ -15,16 +15,19 @@
 </head>
 <body>
   <div id="root"></div>
+
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
   <script>
     window.__SUPABASE_URL__ = "https://zszlqoisokjgvplrcbic.supabase.co";
     window.__SUPABASE_KEY__ = "sb_publishable_b6ZEtYrgGIQT8WxkahGzZg_iHTYMasi";
   </script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script type="text/babel" data-presets="react">
-import { useState, useEffect, useMemo } from "react";
+
+  <script type="text/babel" data-presets="react,env">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 // ─── Supabase client (injected via window.__SUPABASE_URL__ / __SUPABASE_KEY__) ──
 function getSupabase() {
@@ -3781,15 +3784,16 @@ function App() {
 window.__App = App;
 
   </script>
+
   <script>
-    var _interval = setInterval(function() {
+    var _t = setInterval(function() {
       if (window.__App && window.ReactDOM) {
-        clearInterval(_interval);
+        clearInterval(_t);
         ReactDOM.createRoot(document.getElementById('root')).render(
           React.createElement(window.__App)
         );
       }
-    }, 100);
+    }, 200);
   </script>
 </body>
 </html>
