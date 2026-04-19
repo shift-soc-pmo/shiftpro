@@ -464,6 +464,13 @@ async function checkAuth() {
   await loadAll(session.user);
 }
 
+function isManager() {
+  return S.profile?.role === "admin" || S.profile?.role === "manager";
+}
+function isAdmin() {
+  return S.profile?.role === "admin";
+}
+
 function generateInviteCode(businessId) {
   // Simple deterministic code from business ID
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -484,7 +491,14 @@ async function loadAll(user) {
   S.inviteCode = profile.business_id ? generateInviteCode(profile.business_id) : null;
 
   await Promise.all([loadEmployees(), loadVacations(), loadSwapRequests(), loadSchedule()]);
-  S.view = "home"; render();
+  // Role-based default view
+  if (S.profile.role === "employee") {
+    S.view = "empview";
+    S.empViewId = S.user.id; // default to self
+  } else {
+    S.view = "home";
+  }
+  render();
 }
 
 async function loadEmployees() {
@@ -537,6 +551,32 @@ async function loadSchedule() {
     }
   });
   S.schedule = sched_obj;
+}
+
+// ══════════════════════════════════════════════════════
+// EMAIL NOTIFICATIONS via Supabase Edge Function + Resend
+// ══════════════════════════════════════════════════════
+const APP_URL = "https://razbar99.github.io/shiftpro/";
+
+async function sendEmail(type, toEmail, data) {
+  if (!toEmail) return;
+  // Check local notification settings
+  const settingMap = {
+    "schedule_published": "notif_publish",
+    "vacation_approved": "notif_vac_approved",
+    "vacation_rejected": "notif_vac_approved",
+    "swap_request": "notif_swap",
+  };
+  const settingKey = settingMap[type];
+  if (settingKey && localStorage.getItem(settingKey) === "0") return;
+
+  try {
+    await sb.functions.invoke("send-email", {
+      body: { type, to: toEmail, data: { ...data, appUrl: APP_URL } }
+    });
+  } catch (err) {
+    console.warn("Email send failed:", err);
+  }
 }
 
 let _saveTimer = null;
@@ -629,7 +669,9 @@ function toggleLock(date, shift, empId) {
 }
 
 async function publishWeek() {
-  const weekStart = getWeekDates(S.weekOffset)[0];
+  const wd = getWeekDates(S.weekOffset);
+  const weekStart = wd[0];
+  const weekLabel = fmtDate(wd[0]) + " — " + fmtDate(wd[6]);
   const {data:sched} = await sb.from("schedules")
     .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
   if (sched) await sb.from("schedules").update({published:true}).eq("id", sched.id);
@@ -637,6 +679,21 @@ async function publishWeek() {
   S.showPublishModal = false;
   toast("הסידור פורסם 📢");
   render();
+
+  // Send email to each employee with their shifts
+  for (const emp of S.employees) {
+    if (!emp.email || emp.id === S.user.id) continue;
+    const myShifts = [];
+    wd.forEach(date => {
+      SHIFTS.forEach(sh => {
+        if ((S.schedule[date]?.[sh.id]||[]).includes(emp.id)) {
+          const dt = new Date(date+"T00:00:00");
+          myShifts.push({ day: DAYS[dt.getDay()]+" "+dt.getDate(), label: sh.label, hours: sh.start+"–"+sh.end, color: sh.color });
+        }
+      });
+    });
+    sendEmail("schedule_published", emp.email, { empName: emp.name, weekLabel, shifts: myShifts });
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -699,6 +756,19 @@ async function updateVacStatus(id, status) {
   await sb.from("vacations").update({status, approved_by: S.user.id}).eq("id",id);
   await loadVacations();
   toast(status==="approved"?"חופשה אושרה ✓":"חופשה נדחתה"); render();
+
+  // Send email to employee
+  const vac = S.vacations.find(v=>v.id===id);
+  if (vac) {
+    const emp = getEmp(vac.employee_id);
+    if (emp?.email) {
+      sendEmail(
+        status==="approved" ? "vacation_approved" : "vacation_rejected",
+        emp.email,
+        { empName: emp.name, startDate: vac.start_date, endDate: vac.end_date, reason: vac.reason||"" }
+      );
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -828,7 +898,14 @@ function viewHeader() {
   const pendingVacs = S.vacations.filter(v=>v.status==="pending").length;
   const pendingSwaps = S.swapRequests.filter(s=>s.status==="pending_manager").length;
 
-  const tabs = [
+  const empOnly = S.profile?.role === "employee";
+  const tabs = empOnly ? [
+    {id:"empview",  icon:"📋", label:"המשמרות שלי"},
+    {id:"schedule", icon:"📅", label:"סידור"},
+    {id:"calendar", icon:"🗓️", label:"חודש"},
+    {id:"vacations",icon:"🌴", label:"חופשות"},
+    {id:"swaps",    icon:"🔄", label:"חילופים"},
+  ] : [
     {id:"home",     icon:"🏠", label:"בית"},
     {id:"schedule", icon:"📅", label:"סידור"},
     {id:"calendar", icon:"🗓️", label:"חודש"},
@@ -969,8 +1046,8 @@ function viewSchedule() {
       btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset--;S.selectedCell=null;loadSchedule().then(()=>render());}),
       btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;S.selectedCell=null;loadSchedule().then(()=>render());}),
       btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
-      btn("btn-green","⚡ שיבוץ אוטומטי",runSmartSchedule),
-      !isPublished ? btn("btn-purple","📢 פרסם",()=>{S.showPublishModal=true;render();}) : null
+      isManager() ? btn("btn-green","⚡ שיבוץ אוטומטי",runSmartSchedule) : null,
+      isManager() && !isPublished ? btn("btn-purple","📢 פרסם",()=>{S.showPublishModal=true;render();}) : null
     ])
   ]);
   wrap.appendChild(hdr);
@@ -1002,10 +1079,12 @@ function viewSchedule() {
     wd.forEach(date => {
       const empIds = S.schedule[date]?.[shift.id] || [];
       const isSel = S.selectedCell?.date===date && S.selectedCell?.shift===shift.id;
+      const canEdit = isManager();
       const td = e("td",{
         class: isSel ? "selected" : "",
-        style: "--shift-color:"+shift.color,
+        style: "--shift-color:"+shift.color+(canEdit?";cursor:pointer":";cursor:default"),
         onclick: () => {
+          if (!canEdit) return;
           S.selectedCell = isSel ? null : {date, shift:shift.id};
           render();
         }
@@ -1423,6 +1502,19 @@ function viewSwaps() {
         S.swapFormData=null;
         toast("בקשת חילוף נשלחה ✓");
         render();
+
+        // Email manager
+        const reqEmp = getEmp(fd.myEmpId||S.user.id);
+        const adminEmp = S.employees.find(e=>e.role==="admin");
+        if (adminEmp?.email) {
+          const sh = SHIFT_BY_ID[fd.targetShift];
+          sendEmail("swap_request", adminEmp.email, {
+            requesterName: reqEmp?.name||"עובד",
+            targetDate: fd.targetDate,
+            shiftLabel: sh ? sh.label+" ("+sh.start+"–"+sh.end+")" : fd.targetShift,
+            note: fd.note||""
+          });
+        }
       },{style:"flex:1"}),
       btn("btn-sm btn-sm-gray","ביטול",()=>{S.showSwapForm=false;S.swapFormData=null;render();})
     ]));
@@ -1543,18 +1635,27 @@ function viewStats() {
 // ── EMPLOYEE VIEW ──
 function viewEmpView() {
   const wrap = e("div");
-  wrap.appendChild(div("page-title",["👤 תצוגת עובד"],{style:"margin-bottom:14px"}));
+  const selfOnly = S.profile?.role === "employee";
 
-  // Picker
-  const picker = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"});
-  S.employees.forEach((emp,idx) => {
-    const col = ec(idx);
-    const sel = S.empViewId===emp.id;
-    picker.appendChild(btn("",emp.name.split(" ")[0],()=>{S.empViewId=emp.id;S.empViewTab="shifts";render();},{
-      style:`padding:7px 14px;border-radius:10px;border:1px solid ${sel?col+"cc":col+"44"};background:${sel?col+"33":"#1E293B"};color:${sel?col:"#94A3B8"};font-family:inherit;font-weight:${sel?"700":"500"};font-size:13px`
-    }));
-  });
-  wrap.appendChild(picker);
+  // If employee, force self view
+  if (selfOnly && !S.empViewId) S.empViewId = S.user.id;
+
+  if (selfOnly) {
+    // Employee sees only their own data — no picker
+    wrap.appendChild(div("page-title",["📋 המשמרות שלי"],{style:"margin-bottom:14px"}));
+  } else {
+    // Manager sees picker for all employees
+    wrap.appendChild(div("page-title",["👤 תצוגת עובד"],{style:"margin-bottom:14px"}));
+    const picker = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"});
+    S.employees.forEach((emp,idx) => {
+      const col = ec(idx);
+      const sel = S.empViewId===emp.id;
+      picker.appendChild(btn("",emp.name.split(" ")[0],()=>{S.empViewId=emp.id;S.empViewTab="shifts";render();},{
+        style:`padding:7px 14px;border-radius:10px;border:1px solid ${sel?col+"cc":col+"44"};background:${sel?col+"33":"#1E293B"};color:${sel?col:"#94A3B8"};font-family:inherit;font-weight:${sel?"700":"500"};font-size:13px`
+      }));
+    });
+    wrap.appendChild(picker);
+  }
 
   const emp = S.employees.find(e=>e.id===S.empViewId);
   if (!emp) {
@@ -2113,6 +2214,58 @@ function viewSettings() {
 }
 
 // ══════════════════════════════════════════════════════
+// EMPLOYEE VACATION VIEW (self-service)
+// ══════════════════════════════════════════════════════
+function viewEmpVacations() {
+  const wrap = e("div");
+  wrap.appendChild(div("section-header",[
+    div("page-title",["🌴 חופשות"]),
+    btn("btn-add","+ בקש חופשה",()=>{S.showAddVac=!S.showAddVac;render();})
+  ]));
+
+  // Request form
+  if (S.showAddVac) {
+    const form = div("card",[div("card-title",["בקשת חופשה חדשה"])]);
+    form.appendChild(div("form-row",[
+      div("form-col",[e("label",{class:"form-label"},"מתאריך *"),e("input",{class:"fi",type:"date",min:today(),value:S.newVac.startDate,oninput:ev=>{S.newVac.startDate=ev.target.value}})]),
+      div("form-col",[e("label",{class:"form-label"},"עד תאריך *"),e("input",{class:"fi",type:"date",min:today(),value:S.newVac.endDate,oninput:ev=>{S.newVac.endDate=ev.target.value}})])
+    ]));
+    form.appendChild(div("form-col",[e("label",{class:"form-label"},"סיבה"),e("input",{class:"fi",placeholder:"אופציונלי",value:S.newVac.reason,oninput:ev=>{S.newVac.reason=ev.target.value}})],{style:"margin-bottom:12px"}));
+    form.appendChild(div("form-actions",[
+      btn("btn-add","שלח בקשה",async()=>{
+        S.newVac.employeeId = S.user.id;
+        await addVacation();
+        S.showAddVac = false;
+      },{style:"flex:1"}),
+      btn("btn-sm btn-sm-gray","ביטול",()=>{S.showAddVac=false;render();})
+    ]));
+    wrap.appendChild(form);
+  }
+
+  // My vacation requests
+  const myVacs = S.vacations.filter(v=>v.employee_id===S.user.id);
+  const myCard = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:12px"},"הבקשות שלי")]);
+  if (myVacs.length === 0) {
+    myCard.appendChild(e("div",{style:"text-align:center;padding:24px;color:#64748B;font-size:13px"},"אין בקשות חופשה עדיין"));
+  } else {
+    myVacs.sort((a,b)=>b.created_at.localeCompare(a.created_at)).forEach(vac=>{
+      const st = vac.status==="approved"?"approved":vac.status==="rejected"?"rejected":"pending";
+      const label = vac.status==="approved"?"אושרה ✓":vac.status==="rejected"?"נדחתה ✗":"ממתין לאישור";
+      myCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A"},[
+        e("div",{},[
+          e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},vac.start_date+(vac.start_date!==vac.end_date?" — "+vac.end_date:"")),
+          vac.reason?e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},vac.reason):null
+        ]),
+        e("span",{class:"status-badge status-"+st},label)
+      ]));
+    });
+  }
+  wrap.appendChild(myCard);
+
+  return wrap;
+}
+
+// ══════════════════════════════════════════════════════
 // CALENDAR VIEW
 // ══════════════════════════════════════════════════════
 function viewCalendar() {
@@ -2265,10 +2418,11 @@ function render() {
     const main = div("main");
 
     if (S.view==="home")       main.appendChild(viewHome());
-    else if(S.view==="schedule")  main.appendChild(viewSchedule());
+    else if(S.view==="schedule")  main.appendChild(viewSchedule()); // employees see read-only (buttons hidden)
     else if(S.view==="calendar")  main.appendChild(viewCalendar());
-    else if(S.view==="employees") main.appendChild(viewEmployees());
-    else if(S.view==="vacations") main.appendChild(viewVacations());
+    else if(S.view==="employees" && isManager()) main.appendChild(viewEmployees());
+    else if(S.view==="employees" && !isManager()) { S.view="empview"; main.appendChild(viewEmpView()); }
+    else if(S.view==="vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
     else if(S.view==="swaps")     main.appendChild(viewSwaps());
     else if(S.view==="stats")     main.appendChild(viewStats());
     else if(S.view==="empview")   main.appendChild(viewEmpView());
@@ -2287,7 +2441,14 @@ function render() {
     const pendingVacs2 = S.vacations.filter(v=>v.status==="pending").length;
     const bottomNav = e("div",{style:"display:none"},[]); // hidden on desktop
     bottomNav.setAttribute("class","mobile-bottom-nav");
-    const bottomTabs = [
+    const isEmpOnly = S.profile?.role === "employee";
+    const bottomTabs = isEmpOnly ? [
+      {id:"empview",icon:"📋",label:"שלי"},
+      {id:"schedule",icon:"📅",label:"סידור"},
+      {id:"calendar",icon:"🗓️",label:"חודש"},
+      {id:"vacations",icon:"🌴",label:"חופשות"},
+      {id:"swaps",icon:"🔄",label:"חילופים"},
+    ] : [
       {id:"home",icon:"🏠",label:"בית"},
       {id:"schedule",icon:"📅",label:"סידור"},
       {id:"calendar",icon:"🗓️",label:"חודש"},
