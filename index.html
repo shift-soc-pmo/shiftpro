@@ -1303,10 +1303,23 @@ function viewEmployees() {
         ]),
         e("td",{style:"color:#94A3B8"},emp.email||"—"),
         e("td",{style:"color:#64748B"},emp.id_number||"—"),
-        e("td",{},emp.role==="admin"?"מנהל ראשי":emp.role==="manager"?"מנהל משמרת":"עובד"),
+        e("td",{},emp.role==="admin"?"מנהל ראשי 👑":emp.role==="manager"?"מנהל 🔑":"עובד"),
         e("td",{},[
           btn("btn-sm btn-sm-blue","✏️ הגבלות",()=>{S.constraintsEmp=emp;render();},{style:"margin-left:4px"}),
-          btn("btn-sm btn-sm-red","🗑️",()=>deleteEmployee(emp.id))
+          emp.role!=="admin" ? e("select",{
+            style:"background:#0F172A;border:1px solid #334155;border-radius:6px;color:#94A3B8;font-size:11px;padding:3px 6px;font-family:inherit;margin-left:4px",
+            onchange: async (ev) => {
+              const newRole = ev.target.value;
+              await sb.from("profiles").update({role:newRole}).eq("id",emp.id);
+              await loadEmployees();
+              toast("תפקיד עודכן ✓");
+              render();
+            }
+          },[
+            e("option",{value:"employee",selected:emp.role==="employee"?"selected":null},"עובד"),
+            e("option",{value:"manager",selected:emp.role==="manager"?"selected":null},"מנהל 🔑")
+          ]) : e("span",{style:"font-size:11px;color:#64748B;margin-left:4px"},""),
+          emp.id !== S.user.id ? btn("btn-sm btn-sm-red","🗑️",()=>deleteEmployee(emp.id)) : null
         ])
       ]);
       tbody.appendChild(tr);
@@ -1686,7 +1699,7 @@ function viewEmpView() {
         emp.name.split(" ").map(n=>n[0]).join("").slice(0,2)),
       e("div",{style:"flex:1"},[
         e("div",{style:"font-weight:800;font-size:17px;color:#E2E8F0"},emp.name),
-        e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},emp.role==="admin"?"מנהל ראשי":emp.role==="manager"?"מנהל משמרת":"עובד"),
+        e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},emp.role==="admin"?"מנהל ראשי 👑":emp.role==="manager"?"מנהל 🔑":"עובד"),
         emp.email?e("div",{style:"font-size:11px;color:#475569;margin-top:2px"},"✉️ "+emp.email):null
       ])
     ])
@@ -1704,7 +1717,7 @@ function viewEmpView() {
   }
 
   // Tabs
-  const tabs = [["shifts","📋 המשמרות שלי"],["schedule","📅 סידור"],["avail","📝 הגש זמינות"],["vacation","🌴 חופשה"]];
+  const tabs = [["shifts","📋 המשמרות שלי"],["schedule","📅 סידור"],["avail","🚫 בקש חסימה"],["vacation","🌴 חופשה"]];
   wrap.appendChild(e("div",{class:"emp-view-tabs"},tabs.map(([id,lbl])=>
     btn("ev-tab"+(S.empViewTab===id?" active":""),lbl,()=>{S.empViewTab=id;render();})
   )));
@@ -1801,71 +1814,128 @@ function viewEmpView() {
   }
 
   else if (S.empViewTab==="avail") {
-    // Availability submission
+    // BLOCK REQUEST SYSTEM
     const targetOffset = S.availTargetOffset||1;
     const targetDates = getWeekDates(S.weekOffset + targetOffset);
     const targetStart = targetDates[0];
+    const maxBlocks = emp.max_blocks_per_week ?? 2;
+    const allowedSlots = emp.allowed_block_slots || {};
+    const usedBlocks = Object.values(S.availDraft).filter(Boolean).length;
 
     const card = div("card");
+
     // Week selector
     card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
       btn("",`שבוע הבא (${fmtDate(getWeekDates(S.weekOffset+1)[0])})`,
         ()=>{S.availTargetOffset=1;S.availDraft={};render();},{
-        style:`flex:1;padding:8px;border-radius:10px;border:1px solid ${targetOffset===1?"#F59E0Baa":"#334155"};background:${targetOffset===1?"#F59E0B22":"#1E293B"};color:${targetOffset===1?"#F59E0B":"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`
+        style:`flex:1;padding:8px;border-radius:10px;border:1px solid ${targetOffset===1?"#EF4444aa":"#334155"};background:${targetOffset===1?"#EF444422":"#1E293B"};color:${targetOffset===1?"#EF4444":"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`
       }),
       btn("",`עוד שבועיים (${fmtDate(getWeekDates(S.weekOffset+2)[0])})`,
         ()=>{S.availTargetOffset=2;S.availDraft={};render();},{
-        style:`flex:1;padding:8px;border-radius:10px;border:1px solid ${targetOffset===2?"#F59E0Baa":"#334155"};background:${targetOffset===2?"#F59E0B22":"#1E293B"};color:${targetOffset===2?"#F59E0B":"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`
+        style:`flex:1;padding:8px;border-radius:10px;border:1px solid ${targetOffset===2?"#EF4444aa":"#334155"};background:${targetOffset===2?"#EF444422":"#1E293B"};color:${targetOffset===2?"#EF4444":"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`
       })
     ]));
 
-    card.appendChild(e("div",{style:"font-size:12px;color:#94A3B8;margin-bottom:12px"},"סמן משמרות שאתה פנוי:"));
-
-    const avail_tbl = e("table",{style:"width:100%;border-collapse:collapse"});
-    const at_head = e("tr",[e("th",{style:"text-align:right;font-size:11px;color:#64748B;padding:4px 6px"},"")]);
-    SHIFTS.forEach(sh => at_head.appendChild(e("th",{style:`text-align:center;font-size:11px;font-weight:700;color:${sh.color};padding:4px 6px`},sh.label)));
-    avail_tbl.appendChild(at_head);
-
-    targetDates.forEach((date,di) => {
-      const dt = new Date(date+"T00:00:00");
-      const dayName = DAYS[dt.getDay()];
-      const row = e("tr",[e("td",{style:"font-size:12px;color:#94A3B8;font-weight:600;padding:4px 6px;white-space:nowrap"},dayName+" "+dt.getDate())]);
-      SHIFTS.forEach(sh => {
-        const key = di+"|"+sh.id;
-        const blocked = emp.day_constraints?.[dayName]?.[sh.id]===0;
-        const picked = !!S.availDraft[key];
-        const cell = e("td",{style:"text-align:center;padding:4px 6px"},[
-          e("button",{
-            class:"avail-cell"+(picked?" picked":""),
-            disabled: blocked,
-            style: picked?`background:${sh.color}33;border-color:${sh.color}88;color:${sh.color}`:`background:#0F172A;border-color:#334155;color:#334155`,
-            onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
-          }, blocked?"✗":picked?"✓":"·")
-        ]);
-        row.appendChild(cell);
-      });
-      avail_tbl.appendChild(row);
-    });
-    card.appendChild(avail_tbl);
-
-    const selCount = Object.values(S.availDraft).filter(Boolean).length;
-    card.appendChild(e("div",{style:"font-size:11px;color:#475569;margin:10px 0"},`${selCount} משמרות נבחרו`));
-
-    const noteInp = e("input",{class:"fi",placeholder:"הערה למנהל (אופציונלי)",style:"margin-bottom:12px"});
-    card.appendChild(noteInp);
-
-    card.appendChild(div("form-actions",[
-      btn("btn-add","📋 שלח זמינות",async()=>{
-        const slots = Object.entries(S.availDraft)
-          .filter(([,v])=>v)
-          .map(([k])=>{ const [di,shId]=k.split("|"); return {day:new Date(targetDates[parseInt(di)]+"T00:00:00").getDay(),shift:shId}; });
-        if (!slots.length) { toast("בחר לפחות משמרת אחת","err"); return; }
-        await submitAvailability(emp.id, targetStart, slots, noteInp.value);
-        S.availDraft={}; render();
-      },{style:"flex:1"}),
-      btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};render();})
+    // Quota display
+    card.appendChild(e("div",{style:`background:${usedBlocks>=maxBlocks?"#EF444422":"#1E293B"};border:1px solid ${usedBlocks>=maxBlocks?"#EF444444":"#334155"};border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center`},[
+      e("div",{},[
+        e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},"🚫 בקשות חסימה"),
+        e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},"מותר לחסום עד "+maxBlocks+" משמרות בשבוע")
+      ]),
+      e("div",{style:`font-size:22px;font-weight:900;color:${usedBlocks>=maxBlocks?"#EF4444":"#E2E8F0"}`},`${usedBlocks}/${maxBlocks}`)
     ]));
-    wrap.appendChild(card);
+
+    if (maxBlocks === 0) {
+      card.appendChild(e("div",{style:"text-align:center;padding:24px;color:#64748B;font-size:13px"},"המנהל לא אישר לך לחסום משמרות השבוע"));
+      wrap.appendChild(card);
+    } else {
+      card.appendChild(e("div",{style:"font-size:12px;color:#94A3B8;margin-bottom:12px"},"בחר משמרות לחסימה (רק המשמרות המאושרות מוצגות):"));
+
+      const blockTable = e("table",{style:"width:100%;border-collapse:collapse"});
+      const bt_head = e("tr",[e("th",{style:"text-align:right;font-size:11px;color:#64748B;padding:4px 6px"},"")]);
+      SHIFTS.forEach(sh => bt_head.appendChild(e("th",{style:`text-align:center;font-size:11px;font-weight:700;color:${sh.color};padding:4px 6px`},sh.label)));
+      blockTable.appendChild(bt_head);
+
+      targetDates.forEach((date,di) => {
+        const dt = new Date(date+"T00:00:00");
+        const dayName = DAYS[dt.getDay()];
+        const dayAllowed = allowedSlots[dayName]||[];
+        if (dayAllowed.length === 0) return; // skip days with no allowed blocks
+
+        const row = e("tr",[e("td",{style:"font-size:12px;color:#94A3B8;font-weight:600;padding:6px 6px;white-space:nowrap"},dayName+" "+dt.getDate())]);
+        SHIFTS.forEach(sh => {
+          const key = di+"|"+sh.id;
+          const canBlock = dayAllowed.includes(sh.id);
+          const picked = !!S.availDraft[key];
+          const atLimit = !picked && usedBlocks >= maxBlocks;
+
+          if (!canBlock) {
+            row.appendChild(e("td",{style:"text-align:center;padding:4px 6px"},[
+              e("span",{style:"font-size:12px;color:#1E293B"},"—")
+            ]));
+            return;
+          }
+
+          row.appendChild(e("td",{style:"text-align:center;padding:4px 6px"},[
+            e("button",{
+              class:"avail-cell"+(picked?" picked":""),
+              disabled: atLimit && !picked,
+              style: picked
+                ? `background:#EF444433;border-color:#EF4444;color:#EF4444;font-weight:800`
+                : atLimit
+                ? `background:#0F172A;border-color:#1E293B;color:#1E293B;cursor:not-allowed`
+                : `background:#0F172A;border-color:#334155;color:#334155`,
+              onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
+            }, picked?"🚫":"·")
+          ]));
+        });
+        blockTable.appendChild(row);
+      });
+      card.appendChild(blockTable);
+
+      // Reason inputs for each selected block
+      const selectedKeys = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
+      if (selectedKeys.length > 0) {
+        card.appendChild(e("div",{style:"margin-top:14px;border-top:1px solid #334155;padding-top:12px"},[
+          e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:10px"},"סיבות לחסימה:")
+        ]));
+        selectedKeys.forEach(key => {
+          const [di,shId] = key.split("|");
+          const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
+          const sh = SHIFT_BY_ID[shId];
+          const reasonKey = "reason_"+key;
+          card.appendChild(e("div",{style:"margin-bottom:10px"},[
+            e("div",{style:`font-size:12px;font-weight:700;color:${sh.color};margin-bottom:4px`},DAYS[dt.getDay()]+" "+dt.getDate()+" — "+sh.label),
+            e("input",{
+              class:"fi",
+              placeholder:"סיבה (אופציונלי)",
+              value:S.blockReasons?.[reasonKey]||"",
+              oninput:ev=>{
+                if(!S.blockReasons) S.blockReasons={};
+                S.blockReasons[reasonKey]=ev.target.value;
+              }
+            })
+          ]));
+        });
+      }
+
+      card.appendChild(div("form-actions",[
+        btn("btn-sm btn-sm-red","📤 שלח בקשות חסימה",async()=>{
+          if (!selectedKeys.length) { toast("בחר לפחות משמרת אחת","err"); return; }
+          // Reasons are optional
+          const slots = selectedKeys.map(k=>{
+            const [di,shId]=k.split("|");
+            const dt2=new Date(targetDates[parseInt(di)]+"T00:00:00");
+            return {day:dt2.getDay(),shift:shId,date:targetDates[parseInt(di)],reason:S.blockReasons?.["reason_"+k]||""};
+          });
+          await submitAvailability(emp.id, targetStart, slots, "חסימות");
+          S.availDraft={}; S.blockReasons={}; render();
+          toast("בקשות חסימה נשלחו ✓");
+        },{style:"flex:1"}),
+        btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};S.blockReasons={};render();})
+      ],{style:"margin-top:12px"}));
+      wrap.appendChild(card);
+    }
   }
 
   else if (S.empViewTab==="vacation") {
@@ -1925,6 +1995,9 @@ function viewConstraintsModal() {
   let localPerShift = JSON.parse(JSON.stringify(emp.max_per_shift||{}));
   let localAvail = [...(emp.availability||DAYS)];
   let localPref = [...(emp.preferred_shifts||[])];
+  let localMaxBlocks = emp.max_blocks_per_week ?? 2;
+  let localAllowedBlocks = JSON.parse(JSON.stringify(emp.allowed_block_slots||{}));
+  // allowed_block_slots: { "ראשון": ["morning","afternoon"], "שישי": ["morning"] }
 
   const modal = div("modal");
   const mh = div("modal-header",[
@@ -1990,10 +2063,41 @@ function viewConstraintsModal() {
       modal.appendChild(gc);
     }
 
+    // ── Allowed block slots ──
+    const blockCard = div("card",[e("div",{class:"form-label",style:"margin-bottom:8px"},"אילו משמרות העובד מורשה לחסום")],{style:"margin-bottom:12px"});
+    blockCard.appendChild(e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"בחר את המשמרות שהעובד יכול לחסום (רק אלה יוצגו לו)"));
+
+    const blockTable = e("table",{class:"constraint-table"});
+    const bhead = e("tr",[e("th",{style:"text-align:right"},"")]);
+    SHIFTS.forEach(sh => bhead.appendChild(e("th",{style:`color:${sh.color}`},sh.label)));
+    blockTable.appendChild(bhead);
+
+    [...WEEKDAYS, ...WEEKEND].forEach(day => {
+      const row = e("tr",[e("td",{},day)]);
+      SHIFTS.forEach(sh => {
+        const allowed = (localAllowedBlocks[day]||[]).includes(sh.id);
+        const cell = e("button",{
+          class:"constraint-cell"+(allowed?" allowed":""),
+          style:"--sc:"+sh.color,
+          onclick:()=>{
+            if(!localAllowedBlocks[day]) localAllowedBlocks[day]=[];
+            if(allowed) localAllowedBlocks[day]=localAllowedBlocks[day].filter(s=>s!==sh.id);
+            else localAllowedBlocks[day].push(sh.id);
+            rebuildModal();
+          }
+        }, allowed?"✓":"—");
+        row.appendChild(e("td",{},[cell]));
+      });
+      blockTable.appendChild(row);
+    });
+    blockCard.appendChild(blockTable);
+    blockCard.appendChild(e("div",{style:"font-size:11px;color:#475569;margin-top:6px"},"✓ = מותר לחסום · — = אסור לחסום"));
+    modal.appendChild(blockCard);
+
     // Actions
     modal.appendChild(div("form-actions",[
       btn("btn-add","שמור הגבלות",async()=>{
-        await saveConstraints(emp.id,{maxShifts:localMax,maxPerShift:localPerShift,dayConstraints:localDC,availability:localAvail,preferredShifts:localPref});
+        await saveConstraints(emp.id,{maxShifts:localMax,maxPerShift:localPerShift,dayConstraints:localDC,availability:localAvail,preferredShifts:localPref,maxBlocks:localMaxBlocks,allowedBlockSlots:localAllowedBlocks});
       },{style:"flex:1"}),
       btn("btn-sm btn-sm-gray","ביטול",()=>{S.constraintsEmp=null;render();})
     ]));
