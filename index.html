@@ -505,11 +505,13 @@ async function loadSwapRequests() {
   S.swapRequests = data || [];
 }
 
+// 1. פונקציית טעינת הנתונים מהשרת
 async function loadSchedule() {
     if (!S.profile?.business_id) return;
     const weekDates = getWeekDates(S.weekOffset);
     const weekStart = weekDates[0];
 
+    // שליפת ה-Schedule
     const { data: sched } = await sb.from("schedules")
         .select("*").eq("business_id", S.profile.business_id)
         .eq("week_start", weekStart).maybeSingle();
@@ -523,35 +525,75 @@ async function loadSchedule() {
     S.schedule = sched;
     if (sched.published) S.publishedWeeks.add(weekStart);
 
+    // שליפת השיבוצים ועדכון הסטייט המקומי
     const { data: assignments, error } = await sb.from("assignments")
         .select("*").eq("schedule_id", sched.id);
 
-    if (error) {
-        console.error("Error loading assignments:", error);
+    if (!error) {
+        S.assignments = assignments || [];
+        console.log("נתונים נטענו בהצלחה. כמות שיבוצים:", S.assignments.length);
+    }
+}
+
+// 2. פונקציית הציור של הלוח על המסך
+function render() {
+    if (!S.schedule?.id) {
+        document.getElementById('scheduleContainer').innerHTML = '<p class="p-4 text-center">אין סידור עבודה לשבוע זה</p>';
         return;
     }
 
-    S.assignments = assignments || [];
-    console.log("Assignments loaded into State:", S.assignments.length);
+    const weekDates = getWeekDates(S.weekOffset);
+    const sched_obj = {};
+
+    // בניית אובייקט התצוגה מתוך S.assignments
+    weekDates.forEach(d => {
+        sched_obj[d] = {};
+        SHIFTS.forEach(sh => {
+            const assignment = S.assignments.find(a => a.date === d && a.shift === sh.id);
+            // שומרים את ה-ID של העובד בתוך מערך (כדי להתאים למבנה המקורי שלך)
+            sched_obj[d][sh.id] = assignment ? [assignment.employee_id] : [];
+        });
+    });
+
+    // כאן הקוד שמייצר את ה-HTML של הטבלה (וודא שזה מתאים לקיים אצלך)
+    renderScheduleTable(weekDates, sched_obj); 
 }
 
- // עדכון הסטייט המקומי בנתונים החדשים
-  S.assignments = assignments || []; 
-  console.log("Assignments loaded:", S.assignments.length);
-} // סגירה תקינה של loadSchedule
+// 3. פונקציית אישור/דחיית חילוף
+async function updateSwapStatus(id, status) {
+    try {
+        const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
+        if (swapErr) throw swapErr;
 
-function render() { // <--- השורה הזו כנראה הייתה חסרה לך!
-  const weekDates = getWeekDates(S.weekOffset);
-  const sched_obj = {};
-  
-  weekDates.forEach(d => {
-    sched_obj[d] = {};
-    SHIFTS.forEach(sh => { 
-      // אנחנו מחפשים את השיבוץ בתוך S.assignments שטענו הרגע
-      const assignment = S.assignments.find(a => a.date === d && a.shift === sh.id);
-      sched_obj[d][sh.id] = assignment ? [assignment.employee_id] : []; 
-    });
-  });
+        const sw = S.swapRequests.find(s => s.id === id);
+        if (!sw) return;
+
+        if (status === "approved") {
+            // ביצוע העדכון בטבלת assignments
+            if (sw.type === 'swap') {
+                await sb.from("assignments").update({ employee_id: sw.target_id })
+                    .match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
+
+                await sb.from("assignments").update({ employee_id: sw.requester_id })
+                    .match({ date: sw.requester_date, shift: sw.requester_shift, schedule_id: sw.schedule_id });
+            } else {
+                await sb.from("assignments").update({ employee_id: sw.requester_id })
+                    .match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
+            }
+        }
+
+        // ריענון הכל
+        await loadSchedule();
+        await loadSwapRequests();
+        
+        toast(status === "approved" ? "עודכן בהצלחה ✓" : "הבקשה נדחתה");
+        render(); // ציור מחדש של הלוח
+
+    } catch (err) {
+        console.error("Error:", err);
+        toast("שגיאה בעדכון", "error");
+    }
+}
 // ══════════════════════════════════════════════════════
 // EMAIL NOTIFICATIONS via Supabase Edge Function + Resend
 // ══════════════════════════════════════════════════════
