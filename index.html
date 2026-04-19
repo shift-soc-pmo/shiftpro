@@ -786,64 +786,62 @@ async function updateVacStatus(id, status) {
 // ══════════════════════════════════════════════════════
 async function updateSwapStatus(id, status) {
   try {
-    // 1. עדכון סטטוס הבקשה במסד הנתונים
+    // 1. מעדכנים את הסטטוס בטבלת הבקשות
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
 
     const sw = S.swapRequests.find(s => s.id === id);
-    if (!sw) return;
     
-    // 2. עדכון בטבלת השיבוצים מול Supabase ישירות (ללא שמירה מקומית שקורסת)
-    if (status === "approved") {
-      if (sw.type === 'swap' && sw.target_employee_id) {
-        // חילוף: המבקש נכנס במקום העובד השני
-        await sb.from("assignments").update({ employee_id: sw.requester_id })
-          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_employee_id });
-      } else if (sw.type === 'take') {
-        // "קחו משמרת שלי": המנהל מאשר לעובד לצאת מהמשמרת, העובד נמחק מהשיבוץ
-        await sb.from("assignments").delete()
-          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.requester_id });
-      } else if (sw.type === 'join') {
-        // הצטרפות: נוסיף את העובד למשמרת בלוח הנוכחי
-        if (S.schedule?.id) {
-          await sb.from("assignments").insert({ 
-            schedule_id: S.schedule.id, employee_id: sw.requester_id, 
-            date: sw.target_date, shift: sw.target_shift 
-          });
-        }
+    // 2. מעדכנים את הלוח באופן מקומי במקרה של אישור
+    if (sw && status === "approved") {
+      const date = sw.target_date;
+      const shift = sw.target_shift;
+      const takerId = sw.requester_id;
+      const giverId = sw.target_employee_id;
+
+      if (!S.schedule[date]) S.schedule[date] = {};
+      if (!S.schedule[date][shift]) S.schedule[date][shift] = [];
+      
+      const empList = S.schedule[date][shift];
+
+      if (giverId) {
+        const idx = empList.indexOf(giverId);
+        if (idx > -1) empList.splice(idx, 1);
       }
+      
+      if (!empList.includes(takerId)) {
+        empList.push(takerId);
+      }
+
+      saveScheduleToDB();
     }
 
-    // 3. טעינת הלוח המעודכן מהשרת
-    await loadSchedule();
-    await loadSwapRequests();
-
-    // 4. שליחת מייל אוטומטי (קריאה לפונקציית המיילים שלך)
+    // 3. שליחת המייל עם השדות הנכונים
     if (sw) {
       const requester = getEmp(sw.requester_id);
       if (requester && requester.email) {
         const sh = SHIFT_BY_ID[sw.target_shift];
-        const actionText = status === "approved" ? "אושרה ✓" : "נדחתה ✗";
-        
-        let typeText = "חילוף משמרת";
-        if (sw.type === 'take') typeText = "שחרור ממשמרת";
-        if (sw.type === 'join') typeText = "הצטרפות למשמרת";
-        
+        const actionText = status === "approved" ? "אושרה" : "נדחתה";
+        const typeText = sw.type === "swap" ? "חילוף משמרת" : "לקיחת משמרת";
+        const shiftDetails = `${sw.target_date} — ${sh ? sh.label : sw.target_shift}`;
+
+        // קריאה לפונקציה שלך - ודא שהשמות פה (decision, shiftDetails וכו') תואמים למה שהגדרת ב-Supabase!
         sendEmail(
-          "swap_status", // מפתח שמתאים להגדרות ההתראות שלך
+          "swap_status", // או השם המדויק שמוגדר לך ב-settingMap
           requester.email, 
           {
             empName: requester.name,
-            startDate: sw.target_date + " — " + (sh ? sh.label : sw.target_shift),
-            endDate: sw.target_date, 
-            reason: `בקשת ${typeText} ${actionText}`
+            decision: actionText,           // שולח 'אושרה' או 'נדחתה'
+            shiftDetails: shiftDetails,     // שולח את התאריך והמשמרת
+            reason: `בקשת ${typeText} ${actionText}` // שדה ה-reason הקיים
           }
         );
       }
     }
 
-    // 5. ריענון המסך
-    toast(status === "approved" ? "הפעולה אושרה והלוח עודכן ✓" : "הבקשה נדחתה");
+    // 4. ריענון המסך
+    await loadSwapRequests();
+    toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
     render(); 
 
   } catch (err) {
