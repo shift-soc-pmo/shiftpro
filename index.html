@@ -505,6 +505,7 @@ async function loadSwapRequests() {
   S.swapRequests = data || [];
 }
 
+// 1. טעינת נתונים מהשרת לתוך הזיכרון (S.assignments)
 async function loadSchedule() {
   if (!S.profile?.business_id) return;
   const weekDates = getWeekDates(S.weekOffset);
@@ -526,80 +527,46 @@ async function loadSchedule() {
   const { data: assignments, error } = await sb.from("assignments")
     .select("*").eq("schedule_id", sched.id);
 
-  if (error) {
-    console.error("Error loading assignments:", error);
-    return;
+  if (!error) {
+    S.assignments = assignments || [];
+    console.log("Assignments updated in memory:", S.assignments.length);
   }
-
-  // עדכון הזיכרון של האפליקציה בנתונים שחזרו מהשרת
-  S.assignments = assignments || []; 
-  console.log("Assignments loaded:", S.assignments.length);
 }
 
-// פונקציית הציור של הלוח על המסך
-function renderScheduleData() {
-    if (!S.schedule?.id) return;
-
-    const weekDates = getWeekDates(S.weekOffset);
-    const sched_obj = {};
-
-    // בניית אובייקט התצוגה מתוך S.assignments
-    weekDates.forEach(d => {
-        sched_obj[d] = {};
-        SHIFTS.forEach(sh => {
-            // מחפשים את כל השיבוצים למשמרת הספציפית הזו
-            const shiftAssignments = S.assignments.filter(a => a.date === d && a.shift === sh.id);
-            // מוציאים רק את ה-IDs של העובדים
-            sched_obj[d][sh.id] = shiftAssignments.map(a => a.employee_id);
-        });
-    });
-
-    // עדכון המשתנה הגלובלי שה-render המקורי משתמש בו
-    S.schedule_data = sched_obj; 
-}
-
-// פונקציית ה-render הראשית שמעדכנת את ה-DOM
+// 2. פונקציית ה-render הראשית - המוח שבונה את הטבלה
 function render() {
-    const app = $("app");
-    if (!app) return;
-    app.innerHTML = "";
+  const app = $("app");
+  if (!app) return;
+  app.innerHTML = "";
 
-    if (S.view === "loading") { app.appendChild(viewLoading()); return; }
-    if (S.view === "login") { app.appendChild(viewLogin()); return; }
+  if (S.view === "loading") { app.appendChild(viewLoading()); return; }
+  if (S.view === "login") { app.appendChild(viewLogin()); return; }
 
-    // לפני הציור, אנחנו מעבדים את הנתונים מתוך S.assignments לתוך המבנה שהלוח מכיר
-    renderScheduleData();
+  const appWrap = div("app");
+  appWrap.appendChild(viewHeader());
+  const main = div("main");
 
-    const appWrap = div("app");
-    appWrap.appendChild(viewHeader());
-    const main = div("main");
+  // ניתוב דפים
+  if (S.view === "home") main.appendChild(viewHome());
+  else if (S.view === "schedule") main.appendChild(viewSchedule());
+  else if (S.view === "calendar") main.appendChild(viewCalendar());
+  else if (S.view === "employees") main.appendChild(viewEmployees());
+  else if (S.view === "vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
+  else if (S.view === "swaps") main.appendChild(viewSwaps());
+  else if (S.view === "stats") main.appendChild(viewStats());
+  else if (S.view === "empview") main.appendChild(viewEmpView());
+  else if (S.view === "settings") main.appendChild(viewSettings());
 
-    if (S.view === "home") main.appendChild(viewHome());
-    else if (S.view === "schedule") main.appendChild(viewSchedule());
-    else if (S.view === "calendar") main.appendChild(viewCalendar());
-    else if (S.view === "employees") main.appendChild(viewEmployees());
-    else if (S.view === "vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
-    else if (S.view === "swaps") main.appendChild(viewSwaps());
-    else if (S.view === "stats") main.appendChild(viewStats());
-    else if (S.view === "empview") main.appendChild(viewEmpView());
-    else if (S.view === "settings") main.appendChild(viewSettings());
+  appWrap.appendChild(main);
+  app.appendChild(appWrap);
 
-    appWrap.appendChild(main);
-    app.appendChild(appWrap);
-
-    if (S.constraintsEmp) app.appendChild(viewConstraintsModal());
-    if (S.showPublishModal) app.appendChild(viewPublishModal());
-
-    // Mobile bottom nav ו-Toast (נשארים אותו דבר)
-    renderUIExtras(app);
-}
-
-// פונקציית עזר להפרדת ה-UI המשלים
-function renderUIExtras(app) {
-    if (S.view !== "login" && S.view !== "loading") {
-        // כאן הקוד של ה-Bottom Nav וה-Toast שהיה לך קודם בסוף ה-render
-    }
-}
+  // מודאלים והתראות
+  if (S.constraintsEmp) app.appendChild(viewConstraintsModal());
+  if (S.showPublishModal) app.appendChild(viewPublishModal());
+  if (S.toast) app.appendChild(e("div", { class: "toast" + (S.toast.type === "err" ? " err" : "") }, S.toast.msg));
+  
+  // תפריט תחתון למובייל
+  renderMobileNav(app);
 // ══════════════════════════════════════════════════════
 // EMAIL NOTIFICATIONS via Supabase Edge Function + Resend
 // ══════════════════════════════════════════════════════
