@@ -1,5 +1,9 @@
-const CACHE = "shiftpro-v1";
-const ASSETS = ["/shiftpro/", "/shiftpro/index.html"];
+const CACHE = "shift-soc-pmo-v1";
+const ASSETS = [
+  "/shiftpro/",
+  "/shiftpro/index.html",
+  "/shiftpro/manifest.json"
+];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
