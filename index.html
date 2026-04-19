@@ -552,10 +552,13 @@ async function sendEmail(type, toEmail, data) {
   if (settingKey && localStorage.getItem(settingKey) === "0") return;
 
   try {
-    // Use direct fetch instead of Supabase SDK to avoid CORS issues
-    await fetch("https://zszlqoisokjgvplrcbic.supabase.co/functions/v1/send-email", {
+    await fetch("https://zszlqoisokjgvplrcbic.supabase.co/functions/v1/rapid-action", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      mode: "cors",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + SUPABASE_KEY,
+      },
       body: JSON.stringify({ type, to: toEmail, data: { ...data, appUrl: APP_URL } })
     });
   } catch (err) {
