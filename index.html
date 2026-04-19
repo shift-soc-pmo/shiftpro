@@ -386,19 +386,26 @@ function toast(msg,type="ok") {
   setTimeout(()=>{S.toast=null;render();},3000);
 }
 function today() { return new Date().toISOString().split("T")[0]; }
-function getWeekDates(offset=0) {
+ffunction getWeekDates(offset=0) {
   const d = new Date();
-  const dow = d.getDay(); // 0 זה יום ראשון, 6 זה יום שבת
+  // מאפסים את השעה לאמצע היום כדי לבטל לחלוטין קפיצות של אזורי זמן
+  d.setHours(12, 0, 0, 0); 
+  const dow = d.getDay(); // 0 זה יום ראשון
   
-  // מחשבים את תאריך ההתחלה של השבוע (יום ראשון)
-  // מפחיתים את היום בשבוע הנוכחי כדי להגיע ליום ראשון של השבוע הנוכחי
+  // מחשבים את תחילת השבוע (ראשון)
   d.setDate(d.getDate() - dow + (offset * 7));
   
-  // מייצרים מערך של 7 ימים, מראשון עד שבת
+  // בונים מערך של 7 ימים מראשון עד שבת
   return Array.from({length:7}, (_, i) => {
     const x = new Date(d);
     x.setDate(d.getDate() + i);
-    return x.toISOString().split("T")[0];
+    
+    // בונים את התאריך (YYYY-MM-DD) ידנית לפי השעון המקומי
+    const year = x.getFullYear();
+    const month = String(x.getMonth() + 1).padStart(2, '0');
+    const day = String(x.getDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
   });
 }
 function fmtDate(d) { return new Date(d+"T00:00:00").toLocaleDateString("he-IL"); }
