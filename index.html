@@ -542,7 +542,6 @@ const APP_URL = "https://razbar99.github.io/shift-soc-pmo/";
 
 async function sendEmail(type, toEmail, data) {
   if (!toEmail) return;
-  // Check local notification settings
   const settingMap = {
     "schedule_published": "notif_publish",
     "vacation_approved": "notif_vac_approved",
@@ -553,8 +552,11 @@ async function sendEmail(type, toEmail, data) {
   if (settingKey && localStorage.getItem(settingKey) === "0") return;
 
   try {
-    await sb.functions.invoke("send-email", {
-      body: { type, to: toEmail, data: { ...data, appUrl: APP_URL } }
+    // Use direct fetch instead of Supabase SDK to avoid CORS issues
+    await fetch("https://zszlqoisokjgvplrcbic.supabase.co/functions/v1/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, to: toEmail, data: { ...data, appUrl: APP_URL } })
     });
   } catch (err) {
     console.warn("Email send failed:", err);
