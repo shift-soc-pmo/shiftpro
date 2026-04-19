@@ -1031,6 +1031,7 @@ function viewHome() {
 // ── SCHEDULE ──
 function viewSchedule() {
   const wd = getWeekDates(S.weekOffset);
+  const wdDisplay = wd; // RTL table auto-shows first column (Sun) on right
   const weekStart = wd[0];
   const isPublished = S.publishedWeeks.has(weekStart);
   const wrap = e("div");
@@ -1058,7 +1059,7 @@ function viewSchedule() {
   const tbl = e("table",{class:"sched-table"});
   const thead = e("thead");
   const hrow = e("tr",[e("th",{style:"width:90px"},"משמרת")]);
-  wd.forEach(date => {
+  wdDisplay.forEach(date => {
     const dt = new Date(date+"T00:00:00");
     const isToday = date === today();
     hrow.appendChild(e("th",{class:"day-header",style:isToday?"color:#60A5FA":""},[
@@ -1076,7 +1077,7 @@ function viewSchedule() {
       e("div",{style:"font-weight:700;font-size:13px;color:"+shift.color},shift.label),
       e("div",{style:"font-size:10px;color:#475569"},shift.start+"–"+shift.end)
     ]));
-    wd.forEach(date => {
+    wdDisplay.forEach(date => {
       const empIds = S.schedule[date]?.[shift.id] || [];
       const isSel = S.selectedCell?.date===date && S.selectedCell?.shift===shift.id;
       const canEdit = isManager();
@@ -2096,9 +2097,9 @@ function viewSettings() {
   const bizCard = div("card",[e("div",{class:"card-title"},"🏢 פרטי עסק")]);
   if (!S.settingsData) S.settingsData = {
     bizName: S.business?.name||"",
-    morningStart:"07:00",morningEnd:"15:00",
-    afternoonStart:"15:00",afternoonEnd:"23:00",
-    nightStart:"23:00",nightEnd:"07:00",
+    morningStart: SHIFTS[0].start, morningEnd: SHIFTS[0].end,
+    afternoonStart: SHIFTS[1].start, afternoonEnd: SHIFTS[1].end,
+    nightStart: SHIFTS[2].start, nightEnd: SHIFTS[2].end,
     emailNotify: true,
   };
   const sd = S.settingsData;
@@ -2133,9 +2134,10 @@ function viewSettings() {
     ]));
   });
   shiftCard.appendChild(btn("btn-add","שמור שעות",()=>{
-    SHIFTS[0].start=sd.morningStart;SHIFTS[0].end=sd.morningEnd;
-    SHIFTS[1].start=sd.afternoonStart;SHIFTS[1].end=sd.afternoonEnd;
-    SHIFTS[2].start=sd.nightStart;SHIFTS[2].end=sd.nightEnd;
+    // Validate hours before saving
+    if(sd.morningStart && sd.morningEnd) { SHIFTS[0].start=sd.morningStart; SHIFTS[0].end=sd.morningEnd; }
+    if(sd.afternoonStart && sd.afternoonEnd) { SHIFTS[1].start=sd.afternoonStart; SHIFTS[1].end=sd.afternoonEnd; }
+    if(sd.nightStart && sd.nightEnd) { SHIFTS[2].start=sd.nightStart; SHIFTS[2].end=sd.nightEnd; }
     toast("שעות עודכנו ✓");render();
   }));
   wrap.appendChild(shiftCard);
