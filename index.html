@@ -843,34 +843,48 @@ async function addVacation() {
   S.showAddVac = false;
   toast("בקשה נרשמה ✓"); render();
 }
-async function deleteVacRequest(id) {
-  if (!confirm("למחוק את הבקשה לצמיתות?")) return;
-  
-  // בדיקה איזה משתנה מחובר ל-Supabase אצלך (sb או _supabase)
-  const client = typeof sb !== 'undefined' ? sb : (typeof _supabase !== 'undefined' ? _supabase : null);
-  
-  if (!client) {
-    toast("שגיאה: לא נמצא חיבור למסד הנתונים", "err");
-    return;
-  }
+async function editVacation(id, newStart, newEnd, forceStatus) {
+  const updateData = { start_date: newStart, end_date: newEnd };
+  if (forceStatus) updateData.status = forceStatus;
 
   try {
-    const { error } = await client
+    // עדכון בשרת
+    const { error } = await sb.from("vacations").update(updateData).eq("id", id);
+    if (error) throw error;
+    
+    // רענון נתונים מקומי
+    await loadVacations(); 
+    S.editingVac = null;
+    toast("השינויים נשמרו בשרת ✓");
+    render();
+  } catch (err) {
+    toast("שגיאה בעדכון השרת", "err");
+  }
+}
+async function deleteVacRequest(id) {
+  if (!confirm("למחוק את הבקשה לצמיתות מכל המערכת?")) return;
+  
+  try {
+    // 1. שליחת פקודת מחיקה ל-Supabase (זה החלק שהיה חסר!)
+    const { error } = await sb
       .from("vacations")
       .delete()
       .eq("id", id);
     
-    if (error) throw error;
-    
-    toast("הבקשה נמחקה בהצלחה ✓");
-    
-    // רענון הנתונים המקומיים כדי שהיא תיעלם מהמסך מיד
+    if (error) {
+      console.error("SQL Error:", error);
+      throw error;
+    }
+
+    // 2. עדכון המשתנה המקומי כדי שהשורה תיעלם מהמסך מיד
     S.vacations = S.vacations.filter(v => v.id !== id);
     
+    toast("הבקשה נמחקה לצמיתות ✓");
     render(); 
+
   } catch (err) {
-    console.error("Error deleting:", err);
-    toast("שגיאה במחיקה: " + err.message, "err");
+    console.error("Full Delete Error:", err);
+    toast("שגיאה במחיקה ממסד הנתונים: " + err.message, "err");
   }
 }
 async function updateVacStatus(id, status) {
