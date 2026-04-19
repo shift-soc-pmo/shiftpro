@@ -1350,91 +1350,90 @@ function viewSchedule() {
   return wrap;
 }
 function viewCellEditor(date, shiftId) {
-  const shift = SHIFT_BY_ID[shiftId];
-  const assignedIds = S.schedule[date]?.[shiftId] || [];
-  const editor = div("cell-editor");
-  editor.appendChild(e("div",{class:"cell-editor-title"},`✏️ ${shift.label} — ${fmtDate(date)}`));
+  const shift = SHIFT_BY_ID[shiftId];
+  const assignedIds = S.schedule[date]?.[shiftId] || [];
+  const editor = div("cell-editor");
+  editor.appendChild(e("div",{class:"cell-editor-title"},`✏️ שיבוץ ל${shift.label} — ${fmtDate(date)}`));
 
-  const btnWrap = e("div");
-  S.employees.forEach((emp, idx) => {
-    const col = ec(idx);
-    const onVac = S.vacations.some(v=>v.employee_id===emp.id&&v.status==="approved"&&date>=v.start_date&&date<=v.end_date);
-    const isAssigned = assignedIds.includes(emp.id);
-    const locked = S.lockedSlots[date+"|"+shiftId]?.has(emp.id);
+  const btnWrap = e("div");
+  S.employees.forEach((emp, idx) => {
+    const col = ec(idx);
+    const isAssigned = assignedIds.includes(emp.id);
+    const locked = S.lockedSlots[date+"|"+shiftId]?.has(emp.id);
+    
+    // בדיקה האם העובד בחופשה או מילואים בתאריך הזה
+    const vacationInfo = S.vacations.find(v => 
+      v.employee_id === emp.id && 
+      v.status === "approved" && 
+      date >= v.start_date && date <= v.end_date
+    );
 
-    const chip = e("button",{
-      class:"cell-emp-btn"+(isAssigned?" assigned":""),
-      style:`background:${isAssigned?col+"33":"#0F172A"};border:1px solid ${isAssigned?col:col+"44"};color:${col};opacity:${onVac?0.4:1}`,
-      disabled: onVac,
-      onclick: () => toggleCellEmp(date, shiftId, emp.id)
-    },[
-      e("span",{style:`width:7px;height:7px;border-radius:50%;background:${col}`},""),
-      e("span",{},emp.name),
-      onVac ? e("span",{},"🌴") : null,
-      locked ? e("span",{},"🔒") : null
-    ]);
-    btnWrap.appendChild(chip);
+    const isUnavailable = !!vacationInfo;
+    const typeLabel = vacationInfo ? (vacationInfo.type === 'reserve' ? 'במילואים 🎖️' : 'בחופשה 🌴') : '';
 
-    if (isAssigned) {
-      // Lock button
-      const lockBtn = e("button",{
-        class:"btn-icon",
-        title: locked?"שחרר נעילה":"נעל שיבוץ",
-        style:"margin-right:-8px;margin-left:4px",
-        onclick: (ev) => { ev.stopPropagation(); toggleLock(date,shiftId,emp.id); }
-      }, locked?"🔒":"🔓");
-      btnWrap.appendChild(lockBtn);
+    const chip = e("button",{
+      class:"cell-emp-btn" + (isAssigned ? " assigned" : ""),
+      style:`background:${isAssigned ? col+"33" : isUnavailable ? "#F59E0B15" : "#0F172A"}; 
+             border:1px solid ${isAssigned ? col : isUnavailable ? "#F59E0B88" : col+"44"}; 
+             color:${isUnavailable && !isAssigned ? "#F59E0B" : col}; 
+             position:relative;`,
+      onclick: () => {
+        if (!isAssigned && isUnavailable) {
+          if (!confirm(`שים לב: ${emp.name} ${typeLabel}.\nהאם לשבץ בכל זאת?`)) return;
+        }
+        toggleCellEmp(date, shiftId, emp.id);
+      }
+    },[
+      e("span",{style:`width:7px;height:7px;border-radius:50%;background:${isUnavailable ? "#F59E0B" : col}`},""),
+      e("span",{}, emp.name),
+      isUnavailable ? e("span",{style:"font-size:10px;margin-right:4px"}, vacationInfo.type === 'reserve' ? '🎖️' : '🌴') : null,
+      locked ? e("span",{},"🔒") : null
+    ]);
+    
+    btnWrap.appendChild(chip);
 
-      // Custom hours button
-      const chKey = date+"|"+shiftId+"|"+emp.id;
-      const existingCh = S.customHours[chKey];
-      const hoursBtn = e("button",{
-        class:"btn-icon",
-        title:"ערוך שעות",
-        style:"margin-right:-8px;margin-left:4px;font-size:12px;color:#94A3B8",
-        onclick: (ev) => {
-          ev.stopPropagation();
-          const sh = SHIFT_BY_ID[shiftId];
-          const curStart = existingCh?.start || sh.start;
-          const curEnd = existingCh?.end || sh.end;
-          // Show inline editor
-          const existingEditor = document.getElementById("hours-editor-"+chKey.replace(/[|]/g,"_"));
-          if (existingEditor) { existingEditor.remove(); return; }
-          const editorDiv = e("div",{
-            id:"hours-editor-"+chKey.replace(/[|]/g,"_"),
-            style:"display:inline-flex;align-items:center;gap:6px;background:#0F172A;border:1px solid #334155;border-radius:8px;padding:6px 10px;margin:4px"
-          },[
-            e("span",{style:"font-size:11px;color:#94A3B8"},emp.name.split(" ")[0]+":"),
-            e("input",{type:"time",value:curStart,style:"background:#1E293B;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:12px;padding:3px 6px;font-family:inherit",
-              id:"ch-start-"+chKey.replace(/[|]/g,"_")}),
-            e("span",{style:"color:#475569;font-size:11px"},"—"),
-            e("input",{type:"time",value:curEnd,style:"background:#1E293B;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:12px;padding:3px 6px;font-family:inherit",
-              id:"ch-end-"+chKey.replace(/[|]/g,"_")}),
-            e("button",{
-              style:"background:#10B98122;border:1px solid #10B98144;color:#10B981;border-radius:6px;padding:3px 8px;font-size:11px;font-family:inherit;font-weight:700",
-              onclick:(ev2)=>{
-                ev2.stopPropagation();
-                const s=document.getElementById("ch-start-"+chKey.replace(/[|]/g,"_")).value;
-                const en=document.getElementById("ch-end-"+chKey.replace(/[|]/g,"_")).value;
-                if(s&&en){S.customHours[chKey]={start:s,end:en};saveScheduleToDB();toast("שעות עודכנו ✓");render();}
-              }
-            },"שמור"),
-            e("button",{
-              style:"background:#EF444422;border:1px solid #EF444444;color:#EF4444;border-radius:6px;padding:3px 8px;font-size:11px;font-family:inherit;font-weight:700",
-              onclick:(ev2)=>{
-                ev2.stopPropagation();
-                delete S.customHours[chKey];saveScheduleToDB();toast("שעות אופסו");render();
-              }
-            },"אפס")
-          ]);
-          btnWrap.appendChild(editorDiv);
-        }
-      }, "⏰");
-      btnWrap.appendChild(hoursBtn);
-    }
-  });
-  editor.appendChild(btnWrap);
-  return editor;
+    // כפתורי עריכה נוספים (נעילה/שעות) רק אם העובד משובץ
+    if (isAssigned) {
+      const lockBtn = e("button",{
+        class:"btn-icon",
+        style:"margin-right:-8px;margin-left:4px",
+        onclick: (ev) => { ev.stopPropagation(); toggleLock(date,shiftId,emp.id); }
+      }, locked?"🔒":"🔓");
+      btnWrap.appendChild(lockBtn);
+
+      const chKey = date+"|"+shiftId+"|"+emp.id;
+      const hoursBtn = e("button",{
+        class:"btn-icon",
+        style:"margin-right:-8px;margin-left:4px;font-size:12px;color:#94A3B8",
+        onclick: (ev) => {
+          ev.stopPropagation();
+          const sh = SHIFT_BY_ID[shiftId];
+          const existingCh = S.customHours[chKey];
+          const curStart = existingCh?.start || sh.start;
+          const curEnd = existingCh?.end || sh.end;
+          
+          const editorId = "hours-editor-"+chKey.replace(/[|]/g,"_");
+          if (document.getElementById(editorId)) { document.getElementById(editorId).remove(); return; }
+          
+          const editorDiv = e("div",{
+            id: editorId,
+            style:"display:inline-flex;align-items:center;gap:6px;background:#0F172A;border:1px solid #334155;border-radius:8px;padding:6px 10px;margin:4px"
+          },[
+            e("input",{type:"time",value:curStart,style:"background:#1E293B;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:12px;padding:3px 6px;font-family:inherit",id:"ch-s-"+editorId}),
+            e("input",{type:"time",value:curEnd,style:"background:#1E293B;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:12px;padding:3px 6px;font-family:inherit",id:"ch-e-"+editorId}),
+            btn("btn-sm-green","שמור",()=>{
+              const s=$("ch-s-"+editorId).value, en=$("ch-e-"+editorId).value;
+              if(s&&en){S.customHours[chKey]={start:s,end:en};saveScheduleToDB();render();}
+            })
+          ]);
+          btnWrap.appendChild(editorDiv);
+        }
+      }, "⏰");
+      btnWrap.appendChild(hoursBtn);
+    }
+  });
+  editor.appendChild(btnWrap);
+  return editor;
 }
 
 function viewWorkload(wd) {
