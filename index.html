@@ -844,22 +844,35 @@ async function addVacation() {
   toast("בקשה נרשמה ✓"); render();
 }
 async function deleteVacRequest(id) {
-  if (!confirm("האם אתה בטוח שברצונך למחוק בקשה זו?")) return;
+  if (!confirm("למחוק את הבקשה לצמיתות?")) return;
   
+  // בדיקה איזה משתנה מחובר ל-Supabase אצלך (sb או _supabase)
+  const client = typeof sb !== 'undefined' ? sb : (typeof _supabase !== 'undefined' ? _supabase : null);
+  
+  if (!client) {
+    toast("שגיאה: לא נמצא חיבור למסד הנתונים", "err");
+    return;
+  }
+
   try {
-    const { error } = await sb.from("vacations").delete().eq("id", id);
+    const { error } = await client
+      .from("vacations")
+      .delete()
+      .eq("id", id);
     
     if (error) throw error;
     
-    toast("בקשה נמחקה בהצלחה ✓");
-    await loadVacations(); // טעינה מחדש של הנתונים מהשרת
-    render(); // רינדור המסך מחדש
+    toast("הבקשה נמחקה בהצלחה ✓");
+    
+    // רענון הנתונים המקומיים כדי שהיא תיעלם מהמסך מיד
+    S.vacations = S.vacations.filter(v => v.id !== id);
+    
+    render(); 
   } catch (err) {
-    console.error("Error deleting vacation:", err);
-    toast("שגיאה במחיקה", "err");
+    console.error("Error deleting:", err);
+    toast("שגיאה במחיקה: " + err.message, "err");
   }
-}  
-
+}
 async function updateVacStatus(id, status) {
   await sb.from("vacations").update({status, approved_by: S.user.id}).eq("id",id);
   await loadVacations();
