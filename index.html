@@ -535,26 +535,23 @@ async function loadSchedule() {
     console.log("Assignments loaded into State:", S.assignments.length);
 }
 
-  // עדכון הסטייט המקומי בנתונים החדשים
+ // עדכון הסטייט המקומי בנתונים החדשים
   S.assignments = assignments || []; 
   console.log("Assignments loaded:", S.assignments.length);
-} // <--- וודא שיש רק סוגר אחד כזה כאן
+} // סגירה תקינה של loadSchedule
+
+function render() { // <--- השורה הזו כנראה הייתה חסרה לך!
+  const weekDates = getWeekDates(S.weekOffset);
   const sched_obj = {};
+  
   weekDates.forEach(d => {
     sched_obj[d] = {};
-    SHIFTS.forEach(sh => { sched_obj[d][sh.id] = []; });
+    SHIFTS.forEach(sh => { 
+      // אנחנו מחפשים את השיבוץ בתוך S.assignments שטענו הרגע
+      const assignment = S.assignments.find(a => a.date === d && a.shift === sh.id);
+      sched_obj[d][sh.id] = assignment ? [assignment.employee_id] : []; 
+    });
   });
-  (assignments||[]).forEach(a => {
-    if (!sched_obj[a.date]) sched_obj[a.date] = {};
-    if (!sched_obj[a.date][a.shift]) sched_obj[a.date][a.shift] = [];
-    sched_obj[a.date][a.shift].push(a.employee_id);
-    if (a.custom_start && a.custom_end) {
-      S.customHours[a.date+"|"+a.shift+"|"+a.employee_id] = {start:a.custom_start,end:a.custom_end};
-    }
-  });
-  S.schedule = sched_obj;
-}
-
 // ══════════════════════════════════════════════════════
 // EMAIL NOTIFICATIONS via Supabase Edge Function + Resend
 // ══════════════════════════════════════════════════════
