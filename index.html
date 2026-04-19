@@ -2205,6 +2205,24 @@ function viewSettings() {
   }
   wrap.appendChild(pwaCard);
 
+  // Change password
+  const passCard = div("card",[e("div",{class:"card-title"},"🔐 שינוי סיסמה")]);
+  const newPassInp = e("input",{class:"fi",type:"password",placeholder:"סיסמה חדשה (לפחות 6 תווים)",style:"margin-bottom:12px"});
+  const confPassInp = e("input",{class:"fi",type:"password",placeholder:"אשר סיסמה חדשה",style:"margin-bottom:12px"});
+  passCard.appendChild(div("form-col",[e("label",{class:"form-label"},"סיסמה חדשה"),newPassInp],{style:"margin-bottom:10px"}));
+  passCard.appendChild(div("form-col",[e("label",{class:"form-label"},"אישור סיסמה"),confPassInp],{style:"margin-bottom:12px"}));
+  passCard.appendChild(btn("btn-add","🔐 שמור סיסמה חדשה",async()=>{
+    const newPass = newPassInp.value;
+    const confPass = confPassInp.value;
+    if (!newPass || newPass.length < 6) { toast("סיסמה חייבת להיות לפחות 6 תווים","err"); return; }
+    if (newPass !== confPass) { toast("הסיסמאות לא תואמות","err"); return; }
+    const {error} = await sb.auth.updateUser({password: newPass});
+    if (error) { toast("שגיאה: "+error.message,"err"); return; }
+    newPassInp.value=""; confPassInp.value="";
+    toast("סיסמה עודכנה בהצלחה ✓");
+  },{style:"width:100%"}));
+  wrap.appendChild(passCard);
+
   // Danger zone
   const dangerCard = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#EF4444;margin-bottom:12px"},"⚠️ אזור מסוכן")]);
   dangerCard.appendChild(btn("btn-sm btn-sm-red","יציאה מהמערכת",handleLogout,{style:"margin-bottom:8px;width:100%"}));
