@@ -789,18 +789,17 @@ async function updateVacStatus(id, status) {
 // ══════════════════════════════════════════════════════
 async function updateSwapStatus(id, status) {
   try {
-    // 1. מעדכנים את הסטטוס בטבלת הבקשות
+    // 1. עדכון בבסיס הנתונים
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
 
     const sw = S.swapRequests.find(s => s.id === id);
     
-    // 2. מעדכנים את הלוח באופן מקומי במקרה של אישור
     if (sw && status === "approved") {
       const date = sw.target_date;
       const shift = sw.target_shift;
-      const takerId = sw.requester_id;
-      const giverId = sw.target_employee_id;
+      const takerId = sw.requester_id; 
+      const giverId = sw.target_employee_id; 
 
       if (!S.schedule[date]) S.schedule[date] = {};
       if (!S.schedule[date][shift]) S.schedule[date][shift] = [];
@@ -815,34 +814,36 @@ async function updateSwapStatus(id, status) {
       if (!empList.includes(takerId)) {
         empList.push(takerId);
       }
-
       saveScheduleToDB();
     }
 
-    // 3. שליחת המייל עם השדות הנכונים
+    // 2. שליחת המייל - כאן אנחנו מתקנים את ה-undefined
     if (sw) {
       const requester = getEmp(sw.requester_id);
       if (requester && requester.email) {
         const sh = SHIFT_BY_ID[sw.target_shift];
         const actionText = status === "approved" ? "אושרה" : "נדחתה";
         const typeText = sw.type === "swap" ? "חילוף משמרת" : "לקיחת משמרת";
-        const shiftDetails = `${sw.target_date} — ${sh ? sh.label : sw.target_shift}`;
-
-        // קריאה לפונקציה שלך - ודא שהשמות פה (decision, shiftDetails וכו') תואמים למה שהגדרת ב-Supabase!
+        const details = `${sw.target_date} (${sh ? sh.label : sw.target_shift})`;
+        
         sendEmail(
-          "swap_status", // או השם המדויק שמוגדר לך ב-settingMap
+          "swap_status", 
           requester.email, 
           {
             empName: requester.name,
-            decision: actionText,           // שולח 'אושרה' או 'נדחתה'
-            shiftDetails: shiftDetails,     // שולח את התאריך והמשמרת
-            reason: `בקשת ${typeText} ${actionText}` // שדה ה-reason הקיים
+            // אנחנו שולחים את המידע בכמה שמות כדי "לפגוע" במה שהתבנית מחפשת
+            decision: actionText,
+            shiftDetails: details,
+            "החלטה": actionText,
+            "פרטי_המשמרת": details,
+            reason: `בקשת ${typeText} ${actionText}`,
+            startDate: sw.target_date,
+            endDate: sw.target_date
           }
         );
       }
     }
 
-    // 4. ריענון המסך
     await loadSwapRequests();
     toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
     render(); 
