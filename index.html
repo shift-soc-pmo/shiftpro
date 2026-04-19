@@ -506,30 +506,34 @@ async function loadSwapRequests() {
 }
 
 async function loadSchedule() {
-  if (!S.profile?.business_id) return;
-  const weekDates = getWeekDates(S.weekOffset);
-  const weekStart = weekDates[0];
+    if (!S.profile?.business_id) return;
+    const weekDates = getWeekDates(S.weekOffset);
+    const weekStart = weekDates[0];
 
-  const { data: sched } = await sb.from("schedules")
-    .select("*").eq("business_id", S.profile.business_id)
-    .eq("week_start", weekStart).maybeSingle();
+    const { data: sched } = await sb.from("schedules")
+        .select("*").eq("business_id", S.profile.business_id)
+        .eq("week_start", weekStart).maybeSingle();
 
-  if (!sched) { 
-    S.schedule = {}; 
-    S.assignments = []; 
-    return; 
-  }
+    if (!sched) { 
+        S.schedule = {}; 
+        S.assignments = []; 
+        return; 
+    }
 
-  S.schedule = sched;
-  if (sched.published) S.publishedWeeks.add(weekStart);
+    S.schedule = sched;
+    if (sched.published) S.publishedWeeks.add(weekStart);
 
-  const { data: assignments, error } = await sb.from("assignments")
-    .select("*").eq("schedule_id", sched.id);
+    const { data: assignments, error } = await sb.from("assignments")
+        .select("*").eq("schedule_id", sched.id);
 
-  if (error) {
-    console.error("Error loading assignments:", error);
-    return;
-  }
+    if (error) {
+        console.error("Error loading assignments:", error);
+        return;
+    }
+
+    S.assignments = assignments || [];
+    console.log("Assignments loaded into State:", S.assignments.length);
+}
 
   // עדכון הסטייט המקומי בנתונים החדשים
   S.assignments = assignments || []; 
