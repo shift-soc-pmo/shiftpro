@@ -400,96 +400,81 @@ function empIdx(id) { return S.employees.findIndex(e=>e.id===id); }
 // SMART SCHEDULE ALGORITHM
 // ══════════════════════════════════════════════════════
 function runSmartSchedule() {
-  const weekDates = getWeekDates(S.weekOffset).map(d=>new Date(d+"T00:00:00"));
-  const shiftIds = SHIFTS.map(s=>s.id);
-  const newSched = {};
-  const totalCount = {};
-  const shiftTypeCount = {};
+  const weekDates = getWeekDates(S.weekOffset).map(d=>new Date(d+"T00:00:00"));
+  const shiftIds = SHIFTS.map(s=>s.id);
+  const newSched = {}; const totalCount = {}; const shiftTypeCount = {};
 
-  S.employees.forEach(emp => {
-    totalCount[emp.id] = 0;
-    shiftTypeCount[emp.id] = {};
-  });
+  S.employees.forEach(emp => { totalCount[emp.id] = 0; shiftTypeCount[emp.id] = {}; });
 
-  weekDates.forEach((dateObj, dayIdx) => {
-    const dateStr = dateObj.toISOString().split("T")[0];
-    const dayName = DAYS[dateObj.getDay()];
-    newSched[dateStr] = {};
+  weekDates.forEach((dateObj, dayIdx) => {
+    const dateStr = dateObj.toISOString().split("T")[0];
+    const dayName = DAYS[dateObj.getDay()];
+    newSched[dateStr] = {};
 
-    shiftIds.forEach((shiftId, shIdx) => {
-      const lockedKey = dateStr+"|"+shiftId;
-      const lockedEmpIds = S.lockedSlots[lockedKey] ? [...S.lockedSlots[lockedKey]] : [];
-      newSched[dateStr][shiftId] = [...lockedEmpIds];
-      lockedEmpIds.forEach(id => {
-        totalCount[id] = (totalCount[id]||0)+1;
-        shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
-      });
+    shiftIds.forEach((shiftId, shIdx) => {
+      const lockedKey = dateStr+"|"+shiftId;
+      const lockedEmpIds = S.lockedSlots[lockedKey] ? [...S.lockedSlots[lockedKey]] : [];
+      newSched[dateStr][shiftId] = [...lockedEmpIds];
+      lockedEmpIds.forEach(id => {
+        totalCount[id] = (totalCount[id]||0)+1; shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
+      });
 
-      if (lockedEmpIds.length >= 2) return;
-      const need = 2 - lockedEmpIds.length;
+      if (lockedEmpIds.length >= 2) return;
+      const need = 2 - lockedEmpIds.length;
 
-      // Score available employees
-      const scored = S.employees
-        .filter(emp => !lockedEmpIds.includes(emp.id))
-        .map(emp => {
-          let score = 100;
-          const avail = emp.availability || DAYS;
-          const preferred = emp.preferred_shifts || [];
-          const maxShifts = emp.max_shifts_per_week || 5;
-          const dayConstraints = emp.day_constraints || {};
+      const scored = S.employees
+        .filter(emp => !lockedEmpIds.includes(emp.id))
+        .map(emp => {
+          let score = 100;
+          
+          // בדיקת חופשה/מילואים מאושרים - כאן מתבצע הדילוג
+          const onVacation = S.vacations.some(v => 
+            v.employee_id === emp.id && 
+            v.status === "approved" && 
+            dateStr >= v.start_date && dateStr <= v.end_date
+          );
+          
+          if (onVacation) return null; // דילוג אוטומטי
 
-          // Hard blocks
-          const onVac = S.vacations.some(v =>
-            v.employee_id === emp.id && v.status === "approved" &&
-            dateStr >= v.start_date && dateStr <= v.end_date
-          );
-          if (onVac) return null;
-          if (!avail.includes(dayName)) return null;
-          if (dayConstraints[dayName]?.[shiftId] === 0) return null;
-          if (totalCount[emp.id] >= maxShifts) return null;
-          const perLimit = emp.max_per_shift?.[shiftId];
-          if (perLimit != null && (shiftTypeCount[emp.id][shiftId]||0) >= perLimit) return null;
+          const avail = emp.availability || DAYS;
+          const preferred = emp.preferred_shifts || [];
+          const maxShifts = emp.max_shifts_per_week || 5;
+          const dayConstraints = emp.day_constraints || {};
 
-          // Scoring
-          score -= totalCount[emp.id] * 12;
-          if (preferred.includes(shiftId)) score += 30;
-          if (dayConstraints[dayName]?.[shiftId] === 1) score += 20;
+          if (!avail.includes(dayName)) return null;
+          if (dayConstraints[dayName]?.[shiftId] === 0) return null;
+          if (totalCount[emp.id] >= maxShifts) return null;
 
-          // Availability submissions
-          const sub = S.availSubmissions.find(s =>
-            s.employee_id === emp.id &&
-            (s.slots||[]).some(sl => sl.shift === shiftId && sl.day === dateObj.getDay())
-          );
-          if (sub) score += 50;
+          score -= totalCount[emp.id] * 12;
+          if (preferred.includes(shiftId)) score += 30;
+          
+          // מניעת לילה ואז בוקר
+          if (dayIdx > 0 && shIdx === 0) {
+            const prevDate = weekDates[dayIdx-1].toISOString().split("T")[0];
+            if ((newSched[prevDate]?.["night"]||[]).includes(emp.id)) score -= 80;
+          }
 
-          // Avoid back-to-back: night → morning
-          if (dayIdx > 0 && shIdx === 0) {
-            const prevDate = weekDates[dayIdx-1].toISOString().split("T")[0];
-            if ((newSched[prevDate]?.["night"]||[]).includes(emp.id)) score -= 80;
-          }
+          // מניעת כפל משמרות באותו יום
+          const alreadyToday = shiftIds.slice(0,shIdx).some(s => (newSched[dateStr][s]||[]).includes(emp.id));
+          if (alreadyToday) return null;
 
-          // Avoid double shift same day
-          const alreadyToday = shiftIds.slice(0,shIdx).some(s => (newSched[dateStr][s]||[]).includes(emp.id));
-          if (alreadyToday) return null;
+          return { emp, score };
+        })
+        .filter(Boolean)
+        .sort((a,b) => b.score - a.score);
 
-          return { emp, score };
-        })
-        .filter(Boolean)
-        .sort((a,b) => b.score - a.score);
+      const toAdd = scored.slice(0, need).map(s => s.emp.id);
+      newSched[dateStr][shiftId].push(...toAdd);
+      toAdd.forEach(id => {
+        totalCount[id] = (totalCount[id]||0)+1; shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
+      });
+    });
+  });
 
-      const toAdd = scored.slice(0, need).map(s => s.emp.id);
-      newSched[dateStr][shiftId].push(...toAdd);
-      toAdd.forEach(id => {
-        totalCount[id] = (totalCount[id]||0)+1;
-        shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
-      });
-    });
-  });
-
-  S.schedule = newSched;
-  saveScheduleToDB();
-  toast("שיבוץ אוטומטי הושלם ✓");
-  render();
+  S.schedule = newSched; 
+  saveScheduleToDB(); 
+  toast("שיבוץ אוטומטי הושלם (דילג על אנשים בחופשה) ✓"); 
+  render();
 }
 
 // ══════════════════════════════════════════════════════
