@@ -547,12 +547,35 @@ async function loadEmployees() {
 }
 
 async function loadVacations() {
-  const ids = S.employees.map(e=>e.id);
-  if (!ids.length) { S.vacations=[]; return; }
-  const { data } = await sb.from("vacations").select("*").in("employee_id", ids);
-  S.vacations = data || [];
-}
+  if (!S.profile?.business_id) {
+    S.vacations = [];
+    return;
+  }
 
+  try {
+    // שליפה של כל החופשות ששייכות לעסק הנוכחי (הרבה יותר אמין מלסנן לפי עובדים ספציפיים)
+    // הערה: יש לוודא שיש עמודת business_id בטבלת vacations. אם אין, נשתמש בסינון הישן.
+    
+    // ניסיון ראשון: שליפה פשוטה של כל החופשות ללא פילטר עובדים כדי לראות אם משהו מגיע
+    const { data, error } = await sb.from("vacations").select("*");
+
+    if (error) {
+      console.error("שגיאה בשליפת חופשות:", error);
+      S.vacations = [];
+      return;
+    }
+
+    // סינון מקומי: נשמור רק חופשות של עובדים שקיימים ברשימת העובדים שלנו
+    const employeeIds = S.employees.map(e => e.id);
+    S.vacations = (data || []).filter(v => employeeIds.includes(v.employee_id));
+
+    console.log("חופשות שנטענו:", S.vacations); // לוג לבדיקה - תראה אם יש משהו ב-Console
+
+  } catch (err) {
+    console.error("קריסה בשליפת חופשות:", err);
+    S.vacations = [];
+  }
+}
 async function loadSwapRequests() {
   if (!S.profile?.business_id) return;
   const { data } = await sb.from("swap_requests").select("*")
