@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ShiftPro</title>
+<title>Shift SOC PMO</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F172A">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="ShiftPro">
+<meta name="apple-mobile-web-app-title" content="Shift SOC PMO">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:Heebo,sans-serif}
 body{background:#0F172A;color:#E2E8F0;min-height:100vh}
@@ -556,7 +556,7 @@ async function loadSchedule() {
 // ══════════════════════════════════════════════════════
 // EMAIL NOTIFICATIONS via Supabase Edge Function + Resend
 // ══════════════════════════════════════════════════════
-const APP_URL = "https://razbar99.github.io/shiftpro/";
+const APP_URL = "https://razbar99.github.io/shift-soc-pmo/";
 
 async function sendEmail(type, toEmail, data) {
   if (!toEmail) return;
@@ -799,7 +799,7 @@ async function submitAvailability(empId, weekStart, slots, note) {
 function viewLoading() {
   return div("loading-screen",[
     e("div",{style:"font-size:48px;margin-bottom:12px"},"📅"),
-    e("div",{style:"font-weight:800;font-size:20px"},"ShiftPro"),
+    e("div",{style:"font-weight:800;font-size:20px"},"Shift SOC PMO"),
     e("div",{style:"color:#64748B;font-size:14px;margin-top:8px"},"טוען...")
   ]);
 }
@@ -814,7 +814,7 @@ function viewLogin() {
   card.appendChild(div("logo-box",[
     div("logo-icon",["📅"]),
     e("div",{},[
-      e("div",{class:"logo-name"},"ShiftPro"),
+      e("div",{class:"logo-name"},"Shift SOC PMO"),
       e("div",{class:"logo-sub"},"מערכת ניהול משמרות")
     ])
   ]));
@@ -923,7 +923,7 @@ function viewHeader() {
       div("",[
         div("logo-icon",["📅"]),
         e("div",{style:"margin-right:10px"},[
-          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"ShiftPro"),
+          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"Shift SOC PMO"),
           e("div",{style:"font-size:11px;color:#64748B"},S.business?.name||"")
         ])
       ].map((x,i)=>i===0?x:x), {style:"display:flex;align-items:center;gap:10px"}),
@@ -2024,7 +2024,7 @@ function exportSchedulePDF() {
   .empty{color:#ccc;font-size:11px}
   @media print{body{padding:0}}
 </style></head><body>
-<h1>סידור עבודה — ${S.business?.name||"ShiftPro"}</h1>
+<h1>סידור עבודה — ${S.business?.name||"Shift SOC PMO"}</h1>
 <div class="sub">${weekLabel}</div>
 <table>
 <tr><th>משמרת</th>`;
@@ -2055,7 +2055,7 @@ function exportSchedulePDF() {
     html += "</tr>";
   });
   html += `</table>
-<div style="margin-top:16px;font-size:11px;color:#999">הופק מ-ShiftPro · ${new Date().toLocaleDateString("he-IL")}</div>
+<div style="margin-top:16px;font-size:11px;color:#999">הופק מ-Shift SOC PMO · ${new Date().toLocaleDateString("he-IL")}</div>
 </body></html>`;
 
   const win = window.open("","_blank");
@@ -2184,7 +2184,7 @@ function viewSettings() {
 
   // PWA install
   const pwaCard = div("card",[e("div",{class:"card-title"},"📱 התקנה על הטלפון")]);
-  pwaCard.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"התקן את ShiftPro כאפליקציה על מסך הבית שלך"));
+  pwaCard.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"התקן את Shift SOC PMO כאפליקציה על מסך הבית שלך"));
 
   if (S.pwaPrompt) {
     pwaCard.appendChild(btn("btn-purple","📱 התקן אפליקציה",async()=>{
