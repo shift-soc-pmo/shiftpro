@@ -637,35 +637,71 @@ async function sendEmail(type, toEmail, data) {
 }
 
 let _saveTimer = null;
-function saveScheduleToDB() {
+
+async function saveScheduleToDB() {
+  // משתמשים ב-Timer כדי למנוע הצפה של קריאות ל-DB בזמן שינויים מהירים
   clearTimeout(_saveTimer);
+  
   _saveTimer = setTimeout(async () => {
-    if (!S.profile?.business_id) return;
-    const weekDates = getWeekDates(S.weekOffset);
-    const weekStart = weekDates[0];
-
-    let { data: sched } = await sb.from("schedules")
-      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).maybeSingle();
-    if (!sched) {
-      const { data: ns } = await sb.from("schedules")
-        .insert({business_id:S.profile.business_id, week_start:weekStart, created_by:S.user.id}).select().maybeSingle();
-      sched = ns;
+    // בדיקת בטיחות: וודא שיש לנו מזהה עסק ומזהה סידור
+    if (!S.profile?.business_id || !S.schedule?.id) {
+      console.error("Missing business_id or schedule_id - cannot save.");
+      return;
     }
-    if (!sched) return;
 
-    await sb.from("assignments").delete().eq("schedule_id", sched.id);
-    const rows = [];
-    Object.entries(S.schedule).forEach(([date, shifts]) => {
-      Object.entries(shifts).forEach(([shift, empIds]) => {
-        empIds.forEach(empId => {
-          const ch = S.customHours[date+"|"+shift+"|"+empId];
-          rows.push({ schedule_id:sched.id, employee_id:empId, date, shift,
-            custom_start: ch?.start||null, custom_end: ch?.end||null });
-        });
+    console.log("--- תחילת שמירת סידור ל-DB ---");
+
+    try {
+      // 1. הכנת השורות לשמירה מתוך S.assignments
+      // אנחנו עוברים על כל השיבוצים שיש כרגע בסטייט (כולל החילופים)
+      const rowsToInsert = S.assignments.map(asgn => {
+        const chKey = `${asgn.date}|${asgn.shift}|${asgn.employee_id}`;
+        const ch = S.customHours[chKey];
+        
+        return {
+          schedule_id: S.schedule.id,
+          employee_id: asgn.employee_id,
+          date: asgn.date,
+          shift: asgn.shift,
+          custom_start: ch?.start || null,
+          custom_end: ch?.end || null
+        };
       });
-    });
-    if (rows.length) await sb.from("assignments").insert(rows);
-  }, 800);
+
+      if (rowsToInsert.length === 0) {
+        console.log("No assignments to save.");
+        return;
+      }
+
+      // 2. מחיקת השיבוצים הישנים של הסידור הספציפי הזה בלבד
+      const { error: deleteErr } = await sb
+        .from("assignments")
+        .delete()
+        .eq("schedule_id", S.schedule.id);
+
+      if (deleteErr) throw deleteErr;
+
+      // 3. הכנסת השיבוצים החדשים (המעודכנים)
+      const { error: insertErr } = await sb
+        .from("assignments")
+        .insert(rowsToInsert);
+
+      if (insertErr) throw insertErr;
+
+      console.log(`Successfully saved ${rowsToInsert.length} assignments.`);
+      
+      // הודעה קטנה למשתמש (אופציונלי)
+      if (typeof toast === "function") {
+        toast("השינויים נשמרו בבסיס הנתונים", "success");
+      }
+
+    } catch (err) {
+      console.error("Error saving schedule to DB:", err);
+      if (typeof toast === "function") {
+        toast("שגיאה בשמירת הנתונים", "error");
+      }
+    }
+  }, 1000); // ממתין שנייה אחת של שקט לפני השמירה
 }
 
 async function handleLogin(email, password) {
