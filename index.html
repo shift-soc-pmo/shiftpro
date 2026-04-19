@@ -893,6 +893,7 @@ async function updateSwapStatus(id, status) {
     // ריענון הנתונים
     await loadSchedule();
     await loadSwapRequests();
+    await render();
     
     // שליחת מייל ועדכון מסך
     toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
