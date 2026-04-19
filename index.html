@@ -386,7 +386,7 @@ function toast(msg,type="ok") {
   setTimeout(()=>{S.toast=null;render();},3000);
 }
 function today() { return new Date().toISOString().split("T")[0]; }
-ffunction getWeekDates(offset=0) {
+function getWeekDates(offset=0) {
   const d = new Date();
   // מאפסים את השעה לאמצע היום כדי לבטל לחלוטין קפיצות של אזורי זמן
   d.setHours(12, 0, 0, 0); 
