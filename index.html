@@ -786,43 +786,59 @@ async function updateVacStatus(id, status) {
 // ══════════════════════════════════════════════════════
 async function updateSwapStatus(id, status) {
   try {
-    // 1. מעדכנים את הסטטוס של הבקשה במסד הנתונים
+    // 1. מעדכנים את סטטוס הבקשה בבסיס הנתונים
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
 
     const sw = S.swapRequests.find(s => s.id === id);
     
-    // 2. אם אושר - מעדכנים את הלוח המקומי וקוראים לשמירה
+    // 2. אם אושר, מעדכנים את הלוח באופן מקומי ושומרים
     if (sw && status === "approved") {
       const date = sw.target_date;
       const shift = sw.target_shift;
-      const takerId = sw.requester_id; // העובד שלוקח את המשמרת
-      const giverId = sw.target_employee_id; // העובד שמוותר עליה (אם יש)
+      const takerId = sw.requester_id; // המבקש לוקח את המשמרת
+      const giverId = sw.target_employee_id; // העובד שמוותר עליה
 
-      // מוודאים שהתאריך והמשמרת מוגדרים במערך של הלוח
       if (!S.schedule[date]) S.schedule[date] = {};
       if (!S.schedule[date][shift]) S.schedule[date][shift] = [];
       
       const empList = S.schedule[date][shift];
 
-      // אם מדובר בהחלפה מול עובד ספציפי - נסיר את העובד שמוותר
       if (giverId) {
         const idx = empList.indexOf(giverId);
-        if (idx > -1) {
-          empList.splice(idx, 1);
-        }
+        if (idx > -1) empList.splice(idx, 1);
       }
       
-      // נוסיף את העובד שלוקח למשמרת (אם הוא לא שם כבר)
       if (!empList.includes(takerId)) {
         empList.push(takerId);
       }
 
-      // מפעילים את פונקציית השמירה (בדיוק כמו כשאתה לוחץ ידנית בלוח!)
       saveScheduleToDB();
     }
 
-    // 3. מרעננים את רשימת הבקשות ואת המסך כדי שתראה את השינוי מיד
+    // 3. שליחת אימייל לעובד שביקש את החילוף
+    if (sw) {
+      const requester = getEmp(sw.requester_id);
+      if (requester && requester.email) {
+        const sh = SHIFT_BY_ID[sw.target_shift];
+        const actionText = status === "approved" ? "אושרה ✓" : "נדחתה ✗";
+        const typeText = sw.type === "swap" ? "חילוף משמרת" : "לקיחת משמרת";
+        
+        // קריאה לפונקציית שליחת המייל שכבר קיימת אצלך בקוד
+        sendEmail(
+          "swap_request", 
+          requester.email, 
+          {
+            empName: requester.name,
+            startDate: sw.target_date + " — " + (sh ? sh.label : sw.target_shift),
+            endDate: sw.target_date, // נדרש ע"י התבנית שלך
+            reason: `בקשת ${typeText} ${actionText}`
+          }
+        );
+      }
+    }
+
+    // 4. ריענון הנתונים והמסך
     await loadSwapRequests();
     toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
     render(); 
