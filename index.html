@@ -786,34 +786,49 @@ async function updateVacStatus(id, status) {
 // ══════════════════════════════════════════════════════
 async function updateSwapStatus(id, status) {
   try {
+    // 1. מעדכנים את הסטטוס של הבקשה במסד הנתונים
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
 
     const sw = S.swapRequests.find(s => s.id === id);
+    
+    // 2. אם אושר - מעדכנים את הלוח המקומי וקוראים לשמירה
     if (sw && status === "approved") {
-      if (sw.type === 'swap' && sw.target_employee_id) {
-        // החלפה מול עובד קיים
-        await sb.from("assignments").update({ employee_id: sw.requester_id })
-          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_employee_id });
-      } else {
-        // לקיחת משמרת
-        const existing = S.assignments.find(a => a.date === sw.target_date && a.shift === sw.target_shift && a.employee_id !== sw.requester_id);
-        if (existing) {
-          await sb.from("assignments").update({ employee_id: sw.requester_id })
-            .eq("id", existing.id);
+      const date = sw.target_date;
+      const shift = sw.target_shift;
+      const takerId = sw.requester_id; // העובד שלוקח את המשמרת
+      const giverId = sw.target_employee_id; // העובד שמוותר עליה (אם יש)
+
+      // מוודאים שהתאריך והמשמרת מוגדרים במערך של הלוח
+      if (!S.schedule[date]) S.schedule[date] = {};
+      if (!S.schedule[date][shift]) S.schedule[date][shift] = [];
+      
+      const empList = S.schedule[date][shift];
+
+      // אם מדובר בהחלפה מול עובד ספציפי - נסיר את העובד שמוותר
+      if (giverId) {
+        const idx = empList.indexOf(giverId);
+        if (idx > -1) {
+          empList.splice(idx, 1);
         }
       }
+      
+      // נוסיף את העובד שלוקח למשמרת (אם הוא לא שם כבר)
+      if (!empList.includes(takerId)) {
+        empList.push(takerId);
+      }
+
+      // מפעילים את פונקציית השמירה (בדיוק כמו כשאתה לוחץ ידנית בלוח!)
+      saveScheduleToDB();
     }
 
-    // הצעד שמסנכרן את הלוח בזמן אמת: משיכת נתונים + ציור מחדש
-    await loadSchedule(); 
+    // 3. מרעננים את רשימת הבקשות ואת המסך כדי שתראה את השינוי מיד
     await loadSwapRequests();
-    
     toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
     render(); 
 
   } catch (err) {
-    console.error("Error updating swap:", err);
+    console.error("Swap Error:", err);
     toast("שגיאה בעדכון הנתונים", "err");
   }
 }
