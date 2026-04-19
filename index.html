@@ -766,64 +766,63 @@ async function updateVacStatus(id, status) {
 async function updateSwapStatus(id, status) {
   console.log("Starting update swap status for ID:", id, "New Status:", status);
   
-  // 1. עדכון סטטוס הבקשה
-  const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
-  if (swapErr) { console.error("Error updating swap status:", swapErr); return; }
+  try {
+    // 1. עדכון סטטוס הבקשה
+    const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
+    if (swapErr) throw swapErr;
 
-  const sw = S.swapRequests.find(s => s.id === id);
-  if (!sw) { console.error("Swap request not found in state"); return; }
+    const sw = S.swapRequests.find(s => s.id === id);
+    if (!sw) throw new Error("Swap request not found in state");
 
-  // 2. ביצוע החילוף בלוח רק אם אושר
-  if (status === "approved") {
-    console.log("Swap approved! Updating assignments...");
-    
-    try {
-     if (sw.type === 'swap') {
+    // 2. ביצוע החילוף בלוח רק אם אושר
+    if (status === "approved") {
+      console.log("Swap approved! Updating assignments...");
+      
+      if (sw.type === 'swap') {
+        // חילוף בין שניים
         const res1 = await sb.from("assignments")
           .update({ employee_id: sw.target_id })
           .match({ date: sw.requester_date, shift: sw.requester_shift, employee_id: sw.requester_id })
           .select();
-        
+
         const res2 = await sb.from("assignments")
           .update({ employee_id: sw.requester_id })
           .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_id })
           .select();
 
-        console.log("Rows updated (Requester):", res1.data?.length);
-        console.log("Rows updated (Target):", res2.data?.length);
-      }
-        // משמרת 2 (של היעד) -> עוברת למבקש
-        await sb.from("assignments")
-          .update({ employee_id: sw.requester_id })
-          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_id });
+        console.log("Rows updated (Requester):", res1.data?.length || 0);
+        console.log("Rows updated (Target):", res2.data?.length || 0);
       } else {
-        // לקיחה או הצטרפות: פשוט מעדכנים את המשמרת של היעד למבקש
-        await sb.from("assignments")
+        // לקיחה/הצטרפות
+        const res3 = await sb.from("assignments")
           .update({ employee_id: sw.requester_id })
-          .match({ date: sw.target_date, shift: sw.target_shift });
+          .match({ date: sw.target_date, shift: sw.target_shift })
+          .select();
+        console.log("Rows updated (Take/Join):", res3.data?.length || 0);
       }
-      console.log("Assignments updated successfully!");
-    } catch (e) {
-      console.error("Critical error during assignment update:", e);
     }
-  }
 
-  // 3. ריענון נתונים
-  await Promise.all([loadSwapRequests(), loadSchedule()]);
-  
-  // 4. שליחת מייל
-  const req = getEmp(sw.requester_id);
-  if (req?.email) {
-    const sh = SHIFT_BY_ID[sw.target_shift] || { label: sw.target_shift };
-    sendEmail("swap_status", req.email, {
-      empName: req.name,
-      status: status === "approved" ? "אושרה" : "נדחתה",
-      details: `${sw.target_date} (${sh.label})`
-    });
-  }
+    // 3. ריענון נתונים
+    await Promise.all([loadSwapRequests(), loadSchedule()]);
+    
+    // 4. שליחת מייל
+    const req = getEmp(sw.requester_id);
+    if (req?.email) {
+      const sh = SHIFT_BY_ID[sw.target_shift] || { label: sw.target_shift };
+      sendEmail("swap_status", req.email, {
+        empName: req.name,
+        status: status === "approved" ? "אושרה" : "נדחתה",
+        details: `${sw.target_date} (${sh.label})`
+      });
+    }
 
-  toast(status === "approved" ? "החילוף בוצע והלוח עודכן ✓" : "הבקשה נדחתה");
-  render();
+    toast(status === "approved" ? "החילוף בוצע והלוח עודכן ✓" : "הבקשה נדחתה");
+    render();
+
+  } catch (err) {
+    console.error("Critical error in updateSwapStatus:", err);
+    toast("שגיאה בביצוע הפעולה", "error");
+  }
 }
 // ══════════════════════════════════════════════════════
 // AVAILABILITY SUBMISSION
