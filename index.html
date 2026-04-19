@@ -211,100 +211,84 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
 .toast.err{background:#EF4444}
 .mobile-bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:#1E293B;border-top:1px solid #334155;z-index:100;padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -4px 20px rgba(0,0,0,0.3)}
 @media(max-width:768px){
-  .mobile-bottom-nav{display:flex!important}
-}
+  /* Header */
+  .header{padding:0 15px}
+  .header-inner{height:60px}
+  .header .nav{display:none}
+  .user-name,.user-role-label{display:none}
+  .btn-logout{padding:6px 12px;font-size:12px; border-radius: 10px;}
 
-/* LOADING */
-.loading-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;background:#0F172A}
+  /* Main Layout */
+  .main{padding:15px 12px 100px 12px !important}
+  .form-row{grid-template-columns:1fr !important}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .quick-grid{grid-template-columns:1fr 1fr}
+  .card{padding:16px; border-radius: 16px;}
+  .section-header{flex-direction:column;align-items:flex-start;gap:12px}
+  .section-header > div:last-child{width:100%;display:flex;flex-wrap:wrap;gap:8px}
+  .section-header > div:last-child > button{flex:1;min-width:80px;font-size:13px;padding:12px 10px; border-radius: 10px;}
 
-/* SWAPS */
-.swap-card{background:#0F172A;border-radius:10px;padding:12px 14px;margin-bottom:8px;border:1px solid #334155}
-.swap-type-badge{display:inline-block;font-size:10px;font-weight:700;border-radius:5px;padding:2px 7px;margin-left:8px}
+  /* iOS Input Zoom Fix & Form sizing */
+  input, select, textarea, .fi { font-size: 16px !important; padding: 12px !important; }
+  .form-label { font-size: 12px; margin-bottom: 6px; }
 
-/* STATS */
-.stats-row{display:flex;flex-direction:column;gap:8px}
+  /* Schedule Table - Sticky Right Column (Game Changer!) */
+  .sched-wrap{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    margin:0 -16px;
+    padding:0 16px; 
+    width: calc(100% + 32px);
+  }
+  .sched-table{min-width:650px}
+  
+  /* קיבוע העמודה הימנית בזמן גלילה */
+  .sched-table th:first-child, 
+  .sched-table td:first-child {
+    position: sticky;
+    right: 0;
+    z-index: 10;
+    background: #1E293B; /* צבע זהה לכרטיסייה שיסתיר את מה שנגלל תחתיו */
+    box-shadow: -4px 0 12px rgba(0,0,0,0.3); /* צל שנותן תחושת עומק */
+  }
+  .sched-table th:first-child { z-index: 11; background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(8px); }
+  
+  .sched-table th.day-header{min-width:65px;padding:10px 4px}
+  .sched-table td{padding:6px 2px}
+  .sched-table td:first-child{padding:12px 10px;width:90px}
+  .emp-chip{padding:6px 8px;font-size:12px;margin:2px; border-radius: 8px;}
 
-/* EMPLOYEE VIEW */
-.emp-view-tabs{display:flex;gap:6px;margin-bottom:14px}
-.ev-tab{flex:1;padding:8px 4px;border-radius:10px;border:1px solid #334155;background:#1E293B;color:#64748B;font-weight:600;font-size:11px;text-align:center}
-.ev-tab.active{border-color:#3B82F6aa;background:#3B82F622;color:#60A5FA}
+  /* Mobile Bottom Nav - Native App Feel */
+  .mobile-bottom-nav{
+    display:flex!important; 
+    background: rgba(30, 41, 59, 0.85) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    padding-bottom: env(safe-area-inset-bottom, 16px) !important;
+  }
+  .mobile-bottom-nav button { padding-top: 14px; }
 
-/* AVAIL FORM */
-.avail-grid table{border-collapse:collapse}
-.avail-grid th,.avail-grid td{padding:4px 6px;text-align:center}
-.avail-cell{width:36px;height:30px;border-radius:7px;border:1px solid #334155;background:#0F172A;cursor:pointer;font-size:13px;transition:all 0.15s}
-.avail-cell.picked{font-weight:800}
-.avail-cell:disabled{opacity:0.3;cursor:not-allowed}
+  /* Modals (Bottom Sheet style) */
+  .modal-bg{padding:0;align-items:flex-end}
+  .modal{border-radius:24px 24px 0 0;max-height:88vh;width:100%;max-width:100%; padding: 24px 20px 40px; border-bottom: none;}
 
-/* PUBLISHED BANNER */
-.published-banner{background:#10B98118;border:1px solid #10B98133;border-radius:10px;padding:8px 14px;font-size:12px;color:#10B981;font-weight:700;display:inline-flex;align-items:center;gap:6px;margin-top:6px}
-
-/* ALERT */
-.alert{border-radius:10px;padding:10px 14px;font-size:13px;display:flex;align-items:flex-start;gap:8px;margin-bottom:8px}
-.alert-warn{background:#F59E0B10;border:1px solid #F59E0B33;color:#FCD34D}
-.alert-err{background:#EF444410;border:1px solid #EF444433;color:#FCA5A5}
-.alert-info{background:#3B82F610;border:1px solid #3B82F633;color:#93C5FD}
-
-@media(max-width:768px){
-  /* Header — hide top nav on mobile, use bottom nav instead */
-  .header{padding:0 12px}
-  .header-inner{height:52px}
-  .header .nav{display:none}
-  .user-name,.user-role-label{display:none}
-  .btn-logout{padding:5px 10px;font-size:11px}
-
-  /* Main — padding bottom for bottom nav */
-  .main{padding:12px 10px 80px 10px !important}
-
-  /* Layout */
-  .form-row{grid-template-columns:1fr !important}
-  .kpi-grid{grid-template-columns:1fr 1fr}
-  .quick-grid{grid-template-columns:1fr 1fr}
-  .card{padding:14px}
-  .section-header{flex-direction:column;align-items:flex-start;gap:10px}
-  .section-header > div:last-child{width:100%;display:flex;flex-wrap:wrap;gap:6px}
-  .section-header > div:last-child > button{flex:1;min-width:80px;font-size:12px;padding:8px 10px}
-
-  /* Schedule grid — horizontal scroll */
-  .sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -14px;padding:0 14px}
-  .sched-table{min-width:540px}
-  .sched-table th.day-header{min-width:58px;padding:6px 3px}
-  .sched-table td{padding:4px 2px}
-  .sched-table td:first-child{padding:8px 10px;width:70px}
-  .emp-chip{padding:2px 5px;font-size:10px;margin:1px}
-
-  /* Cell editor */
-  .cell-editor{padding:12px}
-  .cell-emp-btn{padding:6px 10px;font-size:12px;margin:2px}
-
-  /* Tables */
-  table{font-size:12px}
-  th{padding:7px 5px;font-size:11px}
-  td{padding:7px 5px}
-
-  /* Modals — full screen on mobile */
-  .modal-bg{padding:8px;align-items:flex-end}
-  .modal{border-radius:20px 20px 0 0;max-height:90vh;width:100%;max-width:100%}
-
-  /* Emp view tabs — scrollable */
-  .emp-view-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;gap:6px;padding-bottom:4px}
-  .ev-tab{flex-shrink:0;padding:8px 12px;font-size:12px;white-space:nowrap}
-
-  /* Buttons */
-  .btn-add,.btn-green,.btn-purple{padding:10px 16px;font-size:13px}
-  .btn-sm{padding:5px 10px;font-size:12px}
-  .page-title{font-size:19px}
-  .avail-cell{width:34px;height:28px;font-size:12px}
-  .constraint-cell{width:36px;height:28px}
+  /* Buttons & General */
+  .btn-add,.btn-green,.btn-purple{padding:12px 16px;font-size:14px; border-radius: 12px;}
+  .btn-sm{padding:8px 12px;font-size:13px}
+  .page-title{font-size:24px}
+  
+  /* Constraints grid */
+  .avail-cell{width:40px;height:36px;font-size:14px}
+  .constraint-cell{width:40px;height:36px}
 }
 
 @media(max-width:480px){
-  .logo-icon{width:32px;height:32px;font-size:16px}
-  .kpi{padding:12px}
-  .kpi-val{font-size:20px}
-  .quick-btn{padding:14px 12px}
-  .q-icon{font-size:22px}
-  .q-label{font-size:13px}
+  .logo-icon{width:32px;height:32px;font-size:16px}
+  .kpi{padding:14px}
+  .kpi-val{font-size:22px}
+  .quick-btn{padding:16px 12px}
+  .q-icon{font-size:24px}
+  .q-label{font-size:14px}
 }
 </style>
 </head>
