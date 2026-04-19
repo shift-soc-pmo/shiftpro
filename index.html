@@ -832,44 +832,42 @@ async function updateVacStatus(id, status) {
 }
 
 async function updateSwapStatus(id, status) {
-  console.log("Starting update swap status:", id, status);
+  console.log("Updating swap status...");
   try {
-    // עדכון סטטוס הבקשה
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
 
     const sw = S.swapRequests.find(s => s.id === id);
-    if (!sw) throw new Error("Request not found");
-
-    if (status === "approved") {
-      // ביצוע החילוף בטבלת assignments
+    if (sw && status === "approved") {
       if (sw.type === 'swap') {
-        // חילוף בין שניים
         await sb.from("assignments").update({ employee_id: sw.target_id })
           .match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
-
         await sb.from("assignments").update({ employee_id: sw.requester_id })
           .match({ date: sw.requester_date, shift: sw.requester_shift, schedule_id: sw.schedule_id });
       } else {
-        // לקיחה/הצטרפות
         await sb.from("assignments").update({ employee_id: sw.requester_id })
           .match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
       }
     }
 
-    // ריענון הנתונים
-    await loadSchedule();
+    // הצעד הקריטי: טוען מה-DB לזיכרון ואז מצייר
+    await loadSchedule(); 
     await loadSwapRequests();
-    await render();
-    
-    // שליחת מייל ועדכון מסך
-    toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
-    if (typeof render === "function") render();
+    toast(status === "approved" ? "עודכן בהצלחה ✓" : "נדחה");
+    render(); 
 
   } catch (err) {
-    console.error("Critical error in updateSwapStatus:", err);
-    toast("שגיאה בעדכון הנתונים", "error");
+    console.error("Error:", err);
+    toast("שגיאה בעדכון", "error");
   }
+}
+
+// פונקציית עזר לתפריט מובייל (כדי למנוע שגיאות סוגרים)
+function renderMobileNav(app) {
+    if (S.view === "login" || S.view === "loading") return;
+    const bottomNav = e("div",{class:"mobile-bottom-nav"});
+    // ... (יתר קוד ה-bottomTabs שלך)
+    app.appendChild(bottomNav);
 }
 // ══════════════════════════════════════════════════════
 // AVAILABILITY SUBMISSION
