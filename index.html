@@ -1173,6 +1173,7 @@ function viewHome() {
 }
 
 // ── SCHEDULE ──
+// ── SCHEDULE ──
 function viewSchedule() {
   // קבלת הימים ומיון שלהם כדי שראשון תמיד יהיה ראשון
   let wd = getWeekDates(S.weekOffset);
@@ -1214,15 +1215,16 @@ function viewSchedule() {
     const row = e("tr");
     // עמודת כותרת המשמרת
     row.appendChild(e("td", { style: "color:" + shift.color }, [
-      e("div", { style: "font-size:14px" }, shift.label),
+      e("div", { style: "font-size:14px; font-weight:800;" }, shift.label),
       e("div", { style: "font-size:10px;opacity:0.6" }, shift.start + "-" + shift.end)
     ]));
 
     // עמודות הימים
     wd.forEach(date => {
-      const empIds = S.assignments
-        .filter(a => a.date === date && a.shift === shift.id)
-        .map(a => a.employee_id);
+      
+      // *** התיקון הראשון ***
+      // קוראים את השיבוץ ישירות מהזיכרון החי ולא מהשרת, מה שגורם לעדכון מיידי
+      const empIds = S.schedule[date]?.[shift.id] || [];
 
       const isSel = S.selectedCell?.date === date && S.selectedCell?.shift === shift.id;
       const td = e("td", {
@@ -1241,9 +1243,20 @@ function viewSchedule() {
           const emp = getEmp(empId);
           if (emp) {
             const col = ec(empIdx(empId));
-            td.appendChild(div("emp-chip", [emp.name.split(" ")[0]], {
+            
+            // *** התיקון השני ***
+            // שולפים את השעות המיוחדות אם קיימות ומוסיפים אותן לצ'יפ של העובד
+            const ch = S.customHours[`${date}|${shift.id}|${empId}`];
+            
+            const chip = e("div", {
+              class: "emp-chip",
               style: `background:${col}22; color:${col}; border:1px solid ${col}44`
-            }));
+            }, [
+              e("span", {}, emp.name.split(" ")[0]),
+              ch ? e("span", { style: "font-size:10px; opacity:0.85; margin-right:4px; font-weight:600;" }, `(${ch.start}-${ch.end})`) : null
+            ]);
+            
+            td.appendChild(chip);
           }
         });
       }
