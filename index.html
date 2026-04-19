@@ -105,12 +105,64 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
 .fi:focus{border-color:#3B82F6}
 .form-actions{display:flex;gap:8px;margin-top:12px}
 
-/* SCHEDULE GRID - FIX ALIGNMENT */
-.sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.sched-table{width:100%;border-collapse:collapse;min-width:600px;table-layout:fixed}
-.sched-table th{text-align:center;padding:10px 6px;font-size:11px;font-weight:600;color:#64748B;border-bottom:1px solid #334155}
-.sched-table th.day-header{min-width:70px}
-.sched-table td{padding:6px 4px;vertical-align:top;border:1px solid #33415522;cursor:pointer;transition:all 0.15s;text-align:center}
+/* SCHEDULE GRID - FIX ALIGNMENT & ORDER */
+.sched-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sched-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+  table-layout: fixed; /* קריטי ליישור עמודות */
+}
+
+/* הגדרת רוחב עמודת הכותרות (בוקר/צהריים/לילה) */
+.sched-table th:first-child, 
+.sched-table td:first-child {
+  width: 110px; 
+  text-align: right;
+  padding: 10px 15px;
+  font-weight: 800;
+  border-left: 2px solid #334155; /* קו מפריד בין הכותרת לימים */
+}
+
+/* כל עמודות הימים יתחלקו שווה בשווה */
+.sched-table th, 
+.sched-table td {
+  text-align: center;
+  padding: 8px 4px;
+  vertical-align: top;
+  border: 1px solid #33415522;
+}
+
+.sched-table th {
+  background: rgba(30, 41, 59, 0.5);
+  font-size: 12px;
+  height: 60px;
+}
+
+.sched-table td {
+  height: 80px;
+}
+
+.emp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 7px;
+  padding: 4px 8px;
+  margin: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sched-table td.selected {
+  background: rgba(59, 130, 246, 0.1);
+  border: 2px solid #3B82F6;
+}
 
 /* התיקון לעמודה הראשונה והיישור */
 .sched-table th:first-child,
