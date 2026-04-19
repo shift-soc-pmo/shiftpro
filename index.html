@@ -841,63 +841,60 @@ async function updateVacStatus(id, status) {
 // ══════════════════════════════════════════════════════
 async function updateSwapStatus(id, status) {
   try {
-    // 1. עדכון בבסיס הנתונים
+    // 1. עדכון סטטוס הבקשה במסד הנתונים
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
 
     const sw = S.swapRequests.find(s => s.id === id);
+    if (!sw) return;
     
-    if (sw && status === "approved") {
-      const date = sw.target_date;
-      const shift = sw.target_shift;
-      const takerId = sw.requester_id; 
-      const giverId = sw.target_employee_id; 
-
-      if (!S.schedule[date]) S.schedule[date] = {};
-      if (!S.schedule[date][shift]) S.schedule[date][shift] = [];
-      
-      const empList = S.schedule[date][shift];
-
-      if (giverId) {
-        const idx = empList.indexOf(giverId);
-        if (idx > -1) empList.splice(idx, 1);
+    // 2. עדכון בטבלת השיבוצים מול Supabase ישירות (מונע את שגיאת הקריסה)
+    if (status === "approved") {
+      if (sw.type === 'swap' && sw.target_employee_id) {
+        // חילוף
+        await sb.from("assignments").update({ employee_id: sw.requester_id })
+          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_employee_id });
+      } else if (sw.type === 'take') {
+        // מחיקה (קחו משמרת)
+        await sb.from("assignments").delete()
+          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.requester_id });
+      } else if (sw.type === 'join') {
+        // הצטרפות
+        if (S.schedule?.id) {
+          await sb.from("assignments").insert({ 
+            schedule_id: S.schedule.id, employee_id: sw.requester_id, 
+            date: sw.target_date, shift: sw.target_shift 
+          });
+        }
       }
-      
-      if (!empList.includes(takerId)) {
-        empList.push(takerId);
-      }
-      saveScheduleToDB();
     }
 
-    // 2. שליחת המייל - כאן אנחנו מתקנים את ה-undefined
+    // 3. טעינת הלוח המעודכן מהשרת
+    await loadSchedule();
+    await loadSwapRequests();
+
+    // 4. שליחת מייל אוטומטי - עם השמות המדויקים שהשרת שלך מחפש!
     if (sw) {
       const requester = getEmp(sw.requester_id);
       if (requester && requester.email) {
         const sh = SHIFT_BY_ID[sw.target_shift];
         const actionText = status === "approved" ? "אושרה" : "נדחתה";
-        const typeText = sw.type === "swap" ? "חילוף משמרת" : "לקיחת משמרת";
-        const details = `${sw.target_date} (${sh ? sh.label : sw.target_shift})`;
+        const shiftDetailsText = `${sw.target_date} — ${sh ? sh.label : sw.target_shift}`;
         
         sendEmail(
           "swap_status", 
           requester.email, 
           {
             empName: requester.name,
-            // אנחנו שולחים את המידע בכמה שמות כדי "לפגוע" במה שהתבנית מחפשת
-            decision: actionText,
-            shiftDetails: details,
-            "החלטה": actionText,
-            "פרטי_המשמרת": details,
-            reason: `בקשת ${typeText} ${actionText}`,
-            startDate: sw.target_date,
-            endDate: sw.target_date
+            status: actionText,       // זה יתחבר ל- ${data.status} ויעלים את ה-undefined
+            details: shiftDetailsText // זה יתחבר ל- ${data.details} ויעלים את ה-undefined
           }
         );
       }
     }
 
-    await loadSwapRequests();
-    toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
+    // 5. ריענון המסך
+    toast(status === "approved" ? "הפעולה אושרה והלוח עודכן ✓" : "הבקשה נדחתה");
     render(); 
 
   } catch (err) {
