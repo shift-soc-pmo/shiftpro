@@ -759,6 +759,25 @@ async function updateSwapStatus(id, status) {
   await sb.from("swap_requests").update({status}).eq("id",id);
   await loadSwapRequests();
   toast(status==="approved"?"חילוף אושר ✓":"חילוף נדחה"); render();
+
+  // Send email to requester
+  const swap = S.swapRequests.find(s=>s.id===id);
+  if (swap) {
+    const requester = getEmp(swap.requester_id);
+    if (requester?.email) {
+      const sh = SHIFT_BY_ID[swap.target_shift];
+      sendEmail(
+        status==="approved" ? "vacation_approved" : "vacation_rejected",
+        requester.email,
+        {
+          empName: requester.name,
+          startDate: swap.target_date + " — " + (sh?.label||swap.target_shift),
+          endDate: swap.target_date,
+          reason: "בקשת חילוף " + (status==="approved"?"אושרה":"נדחתה")
+        }
+      );
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════
