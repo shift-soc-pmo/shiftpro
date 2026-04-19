@@ -509,15 +509,35 @@ async function loadSchedule() {
   if (!S.profile?.business_id) return;
   const weekDates = getWeekDates(S.weekOffset);
   const weekStart = weekDates[0];
+
+  // 1. שליפת פרטי הסידור (schedule)
   const { data: sched } = await sb.from("schedules")
     .select("*").eq("business_id", S.profile.business_id)
     .eq("week_start", weekStart).maybeSingle();
 
-  if (!sched) { S.schedule={}; return; }
+  if (!sched) { 
+    S.schedule = {}; 
+    S.assignments = []; // מאפסים אם אין סידור
+    return; 
+  }
+
+  S.schedule = sched;
   if (sched.published) S.publishedWeeks.add(weekStart);
 
-  const { data: assignments } = await sb.from("assignments")
+  // 2. שליפת השיבוצים (assignments)
+  const { data: assignments, error } = await sb.from("assignments")
     .select("*").eq("schedule_id", sched.id);
+
+  if (error) {
+    console.error("Error loading assignments:", error);
+    return;
+  }
+
+  // --- השורה הקריטית שהייתה חסרה ---
+  S.assignments = assignments || []; 
+  console.log("Assignments loaded into State:", S.assignments.length, "rows");
+  // ---------------------------------
+}
 
   const sched_obj = {};
   weekDates.forEach(d => {
