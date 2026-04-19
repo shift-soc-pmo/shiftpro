@@ -531,15 +531,42 @@ async function loadSchedule() {
     return; 
   }
 
-  S.schedule = sched;
   if (sched.published) S.publishedWeeks.add(weekStart);
 
   const { data: assignments, error } = await sb.from("assignments")
     .select("*").eq("schedule_id", sched.id);
 
-  if (!error) {
-    S.assignments = assignments || [];
+  if (error) {
+    console.error("Error loading assignments:", error);
+    return;
   }
+
+  S.assignments = assignments || [];
+
+  // בונה מחדש את מבנה הנתונים שהלוח המקורי שלך מכיר
+  const sched_obj = {};
+  weekDates.forEach(d => {
+    sched_obj[d] = {};
+    SHIFTS.forEach(sh => {
+      sched_obj[d][sh.id] = [];
+    });
+  });
+
+  S.assignments.forEach(a => {
+    if (!sched_obj[a.date]) sched_obj[a.date] = {};
+    if (!sched_obj[a.date][a.shift]) sched_obj[a.date][a.shift] = [];
+    sched_obj[a.date][a.shift].push(a.employee_id);
+    
+    if (a.custom_start && a.custom_end) {
+      S.customHours[`${a.date}|${a.shift}|${a.employee_id}`] = {
+        start: a.custom_start,
+        end: a.custom_end
+      };
+    }
+  });
+
+  S.schedule = sched_obj;
+  S.schedule.id = sched.id;
 }
 
 // ══════════════════════════════════════════════════════
@@ -755,42 +782,31 @@ async function updateSwapStatus(id, status) {
     if (swapErr) throw swapErr;
 
     const sw = S.swapRequests.find(s => s.id === id);
-    if (!sw) throw new Error("Request not found");
-
-    if (status === "approved") {
-      const currentScheduleId = S.schedule?.id;
-      
+    if (sw && status === "approved") {
+      // שימוש מדויק בעמודות הקיימות כדי לעדכן את העובד בשיבוץ
       if (sw.type === 'swap' && sw.target_employee_id) {
-        // המטרה מחליף את המבקש
-        await sb.from("assignments")
-          .update({ employee_id: sw.target_employee_id })
-          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.requester_id });
+        await sb.from("assignments").update({ employee_id: sw.requester_id })
+          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_employee_id });
       } else {
-        // לקיחה - המבקש מקבל את המשמרת
-        const existing = S.assignments.find(a => a.date === sw.target_date && a.shift === sw.target_shift);
+        // אם זה לקיחת משמרת ויש כבר מישהו שיושב שם (ואנחנו רוצים להחליף אותו)
+        const existing = S.assignments.find(a => a.date === sw.target_date && a.shift === sw.target_shift && a.employee_id !== sw.requester_id);
         if (existing) {
-           await sb.from("assignments")
-             .update({ employee_id: sw.requester_id })
-             .match({ id: existing.id });
-        } else if (currentScheduleId) {
-           await sb.from("assignments").insert({
-             schedule_id: currentScheduleId,
-             employee_id: sw.requester_id,
-             date: sw.target_date,
-             shift: sw.target_shift
-           });
+          await sb.from("assignments").update({ employee_id: sw.requester_id })
+            .eq("id", existing.id);
         }
       }
     }
 
-    await loadSchedule();
+    // הצעד שמסנכרן את הלוח בזמן אמת: משיכת נתונים + ציור מחדש
+    await loadSchedule(); 
     await loadSwapRequests();
+    
     toast(status === "approved" ? "החילוף בוצע בהצלחה ✓" : "הבקשה נדחתה");
     render(); 
 
   } catch (err) {
-    console.error("Error in updateSwapStatus:", err);
-    toast("שגיאה בעדכון הנתונים", "error");
+    console.error("Error updating swap:", err);
+    toast("שגיאה בעדכון הנתונים", "err");
   }
 }
 
