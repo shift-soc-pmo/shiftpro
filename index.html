@@ -105,18 +105,21 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
 .fi:focus{border-color:#3B82F6}
 .form-actions{display:flex;gap:8px;margin-top:12px}
 
-/* SCHEDULE GRID */
+/* SCHEDULE GRID - FIX ALIGNMENT */
 .sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.sched-table{width:100%;border-collapse:collapse;min-width:480px}
+.sched-table{width:100%;border-collapse:collapse;min-width:600px;table-layout:fixed}
 .sched-table th{text-align:center;padding:10px 6px;font-size:11px;font-weight:600;color:#64748B;border-bottom:1px solid #334155}
 .sched-table th.day-header{min-width:70px}
-.sched-table td{padding:6px 4px;vertical-align:top;border:1px solid transparent;cursor:pointer;transition:all 0.15s;text-align:center}
-.sched-table td:first-child{padding:10px 16px;text-align:right;cursor:default;border:none;width:90px}
+.sched-table td{padding:6px 4px;vertical-align:top;border:1px solid #33415522;cursor:pointer;transition:all 0.15s;text-align:center}
+
+/* התיקון לעמודה הראשונה והיישור */
+.sched-table th:first-child,
+.sched-table td:first-child{padding:10px 16px;text-align:right;cursor:default;border:none;width:100px;font-weight:800}
+
 .sched-table td.selected{border-color:var(--shift-color,#3B82F6);background:rgba(59,130,246,0.08)}
 .sched-table td:not(:first-child):hover{background:#0F172A}
 .emp-chip{display:inline-flex;align-items:center;gap:4px;border-radius:7px;padding:3px 8px;margin:2px;font-size:11px;font-weight:600}
 .cell-empty{font-size:10px;color:#334155;padding:8px 0}
-
 /* WORKLOAD BAR */
 .workload-row{margin-bottom:10px}
 .workload-info{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
