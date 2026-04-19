@@ -843,6 +843,22 @@ async function addVacation() {
   S.showAddVac = false;
   toast("בקשה נרשמה ✓"); render();
 }
+async function deleteVacRequest(id) {
+  if (!confirm("האם אתה בטוח שברצונך למחוק בקשה זו?")) return;
+  
+  try {
+    const { error } = await sb.from("vacations").delete().eq("id", id);
+    
+    if (error) throw error;
+    
+    toast("בקשה נמחקה בהצלחה ✓");
+    await loadVacations(); // טעינה מחדש של הנתונים מהשרת
+    render(); // רינדור המסך מחדש
+  } catch (err) {
+    console.error("Error deleting vacation:", err);
+    toast("שגיאה במחיקה", "err");
+  }
+}  
 
 async function updateVacStatus(id, status) {
   await sb.from("vacations").update({status, approved_by: S.user.id}).eq("id",id);
