@@ -510,17 +510,11 @@ async function loadSchedule() {
   if (!S.profile?.business_id) return;
   const weekDates = getWeekDates(S.weekOffset);
   const weekStart = weekDates[0];
-
   const { data: sched } = await sb.from("schedules")
     .select("*").eq("business_id", S.profile.business_id)
     .eq("week_start", weekStart).maybeSingle();
 
-  if (!sched) { 
-    S.schedule = {}; 
-    S.assignments = []; 
-    return; 
-  }
-
+  if (!sched) { S.schedule={}; S.assignments=[]; return; }
   S.schedule = sched;
   if (sched.published) S.publishedWeeks.add(weekStart);
 
@@ -529,10 +523,8 @@ async function loadSchedule() {
 
   if (!error) {
     S.assignments = assignments || [];
-    console.log("Assignments updated in memory:", S.assignments.length);
   }
 }
-
 // 2. פונקציית ה-render הראשית - המוח שבונה את הטבלה
 function render() {
   const app = $("app");
@@ -832,7 +824,6 @@ async function updateVacStatus(id, status) {
 }
 
 async function updateSwapStatus(id, status) {
-  console.log("Updating swap status...");
   try {
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
@@ -840,33 +831,55 @@ async function updateSwapStatus(id, status) {
     const sw = S.swapRequests.find(s => s.id === id);
     if (sw && status === "approved") {
       if (sw.type === 'swap') {
-        await sb.from("assignments").update({ employee_id: sw.target_id })
-          .match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
-        await sb.from("assignments").update({ employee_id: sw.requester_id })
-          .match({ date: sw.requester_date, shift: sw.requester_shift, schedule_id: sw.schedule_id });
+        await sb.from("assignments").update({ employee_id: sw.target_id }).match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
+        await sb.from("assignments").update({ employee_id: sw.requester_id }).match({ date: sw.requester_date, shift: sw.requester_shift, schedule_id: sw.schedule_id });
       } else {
-        await sb.from("assignments").update({ employee_id: sw.requester_id })
-          .match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
+        await sb.from("assignments").update({ employee_id: sw.requester_id }).match({ date: sw.target_date, shift: sw.target_shift, schedule_id: sw.schedule_id });
       }
     }
 
-    // הצעד הקריטי: טוען מה-DB לזיכרון ואז מצייר
     await loadSchedule(); 
     await loadSwapRequests();
     toast(status === "approved" ? "עודכן בהצלחה ✓" : "נדחה");
     render(); 
 
   } catch (err) {
-    console.error("Error:", err);
-    toast("שגיאה בעדכון", "error");
+    console.error(err);
+    toast("שגיאה בעדכון", "err");
   }
-}
-
+    }
 // פונקציית עזר לתפריט מובייל (כדי למנוע שגיאות סוגרים)
 function renderMobileNav(app) {
     if (S.view === "login" || S.view === "loading") return;
-    const bottomNav = e("div",{class:"mobile-bottom-nav"});
-    // ... (יתר קוד ה-bottomTabs שלך)
+    const pendingVacs2 = S.vacations.filter(v => v.status === "pending").length;
+    const isEmpOnly = S.profile?.role === "employee";
+    const bottomTabs = isEmpOnly ? [
+        { id: "empview", icon: "📋", label: "שלי" },
+        { id: "schedule", icon: "📅", label: "סידור" },
+        { id: "calendar", icon: "🗓️", label: "חודש" },
+        { id: "vacations", icon: "🌴", label: "חופשות" },
+        { id: "swaps", icon: "🔄", label: "חילופים" },
+    ] : [
+        { id: "home", icon: "🏠", label: "בית" },
+        { id: "schedule", icon: "📅", label: "סידור" },
+        { id: "calendar", icon: "🗓️", label: "חודש" },
+        { id: "employees", icon: "👥", label: "עובדים" },
+        { id: "vacations", icon: "🌴", label: "חופשות", badge: pendingVacs2 },
+    ];
+
+    const bottomNav = e("div", { class: "mobile-bottom-nav" });
+    bottomTabs.forEach(t => {
+        const isActive = S.view === t.id;
+        const btn2 = e("button", {
+            style: `flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px 8px;border:none;border-top:2px solid ${isActive ? "#3B82F6" : "transparent"};background:transparent;color:${isActive ? "#3B82F6" : "#64748B"};font-family:inherit;cursor:pointer;position:relative;min-height:56px;transition:color 0.15s`,
+            onclick: () => { S.view = t.id; S.selectedCell = null; render(); }
+        }, [
+            t.badge > 0 ? e("span", { style: "position:absolute;top:6px;right:calc(50% - 16px);background:#EF4444;color:white;border-radius:50%;width:14px;height:14px;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center" }, String(t.badge)) : null,
+            e("span", { style: "font-size:22px;line-height:1" }, t.icon),
+            e("span", { style: `font-size:10px;font-weight:${isActive ? "700" : "500"};margin-top:1px` }, t.label)
+        ]);
+        bottomNav.appendChild(btn2);
+    });
     app.appendChild(bottomNav);
 }
 // ══════════════════════════════════════════════════════
@@ -2651,71 +2664,34 @@ function viewCalendar() {
 // ══════════════════════════════════════════════════════
 function render() {
   const app = $("app");
+  if (!app) return;
   app.innerHTML = "";
 
-  if (S.view==="loading") { app.appendChild(viewLoading()); return; }
-  if (S.view==="login")   { app.appendChild(viewLogin()); }
-  else {
-    const appWrap = div("app");
-    appWrap.appendChild(viewHeader());
-    const main = div("main");
+  if (S.view === "loading") { app.appendChild(viewLoading()); return; }
+  if (S.view === "login") { app.appendChild(viewLogin()); return; }
 
-    if (S.view==="home")       main.appendChild(viewHome());
-    else if(S.view==="schedule")  main.appendChild(viewSchedule()); // employees see read-only (buttons hidden)
-    else if(S.view==="calendar")  main.appendChild(viewCalendar());
-    else if(S.view==="employees" && isManager()) main.appendChild(viewEmployees());
-    else if(S.view==="employees" && !isManager()) { S.view="empview"; main.appendChild(viewEmpView()); }
-    else if(S.view==="vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
-    else if(S.view==="swaps")     main.appendChild(viewSwaps());
-    else if(S.view==="stats")     main.appendChild(viewStats());
-    else if(S.view==="empview")   main.appendChild(viewEmpView());
-    else if(S.view==="settings")  main.appendChild(viewSettings());
+  const appWrap = div("app");
+  appWrap.appendChild(viewHeader());
+  const main = div("main");
 
-    appWrap.appendChild(main);
-    app.appendChild(appWrap);
+  if (S.view === "home") main.appendChild(viewHome());
+  else if (S.view === "schedule") main.appendChild(viewSchedule());
+  else if (S.view === "calendar") main.appendChild(viewCalendar());
+  else if (S.view === "employees") main.appendChild(viewEmployees());
+  else if (S.view === "vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
+  else if (S.view === "swaps") main.appendChild(viewSwaps());
+  else if (S.view === "stats") main.appendChild(viewStats());
+  else if (S.view === "empview") main.appendChild(viewEmpView());
+  else if (S.view === "settings") main.appendChild(viewSettings());
 
-    // Modals
-    if(S.constraintsEmp) app.appendChild(viewConstraintsModal());
-    if(S.showPublishModal) app.appendChild(viewPublishModal());
-  }
+  appWrap.appendChild(main);
+  app.appendChild(appWrap);
 
-  // Mobile bottom nav
-  if (S.view !== "login" && S.view !== "loading") {
-    const pendingVacs2 = S.vacations.filter(v=>v.status==="pending").length;
-    const bottomNav = e("div",{class:"mobile-bottom-nav"});
-    const isEmpOnly = S.profile?.role === "employee";
-    const bottomTabs = isEmpOnly ? [
-      {id:"empview",icon:"📋",label:"שלי"},
-      {id:"schedule",icon:"📅",label:"סידור"},
-      {id:"calendar",icon:"🗓️",label:"חודש"},
-      {id:"vacations",icon:"🌴",label:"חופשות"},
-      {id:"swaps",icon:"🔄",label:"חילופים"},
-    ] : [
-      {id:"home",icon:"🏠",label:"בית"},
-      {id:"schedule",icon:"📅",label:"סידור"},
-      {id:"calendar",icon:"🗓️",label:"חודש"},
-      {id:"employees",icon:"👥",label:"עובדים"},
-      {id:"vacations",icon:"🌴",label:"חופשות",badge:pendingVacs2},
-    ];
-    bottomTabs.forEach(t => {
-      const isActive = S.view===t.id;
-      const btn2 = e("button",{
-        style:`flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px 8px;border:none;border-top:2px solid ${isActive?"#3B82F6":"transparent"};background:transparent;color:${isActive?"#3B82F6":"#64748B"};font-family:inherit;cursor:pointer;position:relative;min-height:56px;transition:color 0.15s`,
-        onclick:()=>{S.view=t.id;S.selectedCell=null;render();}
-      },[
-        t.badge>0?e("span",{style:"position:absolute;top:6px;right:calc(50% - 16px);background:#EF4444;color:white;border-radius:50%;width:14px;height:14px;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center"},String(t.badge)):null,
-        e("span",{style:"font-size:22px;line-height:1"},t.icon),
-        e("span",{style:`font-size:10px;font-weight:${isActive?"700":"500"};margin-top:1px`},t.label)
-      ]);
-      bottomNav.appendChild(btn2);
-    });
-    app.appendChild(bottomNav);
-  }
-
-  // Toast
-  if(S.toast) {
-    app.appendChild(e("div",{class:"toast"+(S.toast.type==="err"?" err":"")},S.toast.msg));
-  }
+  if (S.constraintsEmp) app.appendChild(viewConstraintsModal());
+  if (S.showPublishModal) app.appendChild(viewPublishModal());
+  if (S.toast) app.appendChild(e("div", { class: "toast" + (S.toast.type === "err" ? " err" : "") }, S.toast.msg));
+  
+  renderMobileNav(app);
 }
 
 // PWA install prompt
@@ -2731,29 +2707,21 @@ if ("serviceWorker" in navigator) {
 
 // INIT
 function setupRealtime() {
-  sb.channel('db-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'vacations' }, payload => {
-      loadVacations().then(render);
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'swap_requests' }, payload => {
-      loadSwapRequests().then(render);
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, payload => {
-      loadSchedule().then(render);
-    })
-    .subscribe();
+    sb.channel('db-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'vacations' }, payload => { loadVacations().then(render); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'swap_requests' }, payload => { loadSwapRequests().then(render); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, payload => { loadSchedule().then(render); })
+        .subscribe();
 }
 
 async function startApp() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session?.user) { S.view="login"; render(); return; }
-  
-  await loadAll(session.user);
-  setupRealtime(); // מדליק את העדכונים בזמן אמת
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session?.user) { S.view = "login"; render(); return; }
+    await loadAll(session.user);
+    setupRealtime();
 }
 
 startApp();
-  }
 </script>
 </body>
 </html>
