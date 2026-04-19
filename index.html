@@ -778,13 +778,20 @@ async function updateSwapStatus(id, status) {
     console.log("Swap approved! Updating assignments...");
     
     try {
-      if (sw.type === 'swap') {
-        // חילוף בין שניים: מחליפים את ה-employee_id בשתי המשמרות
-        // משמרת 1 (של המבקש) -> עוברת ליעד
-        await sb.from("assignments")
+     if (sw.type === 'swap') {
+        const res1 = await sb.from("assignments")
           .update({ employee_id: sw.target_id })
-          .match({ date: sw.requester_date, shift: sw.requester_shift, employee_id: sw.requester_id });
+          .match({ date: sw.requester_date, shift: sw.requester_shift, employee_id: sw.requester_id })
+          .select();
+        
+        const res2 = await sb.from("assignments")
+          .update({ employee_id: sw.requester_id })
+          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_id })
+          .select();
 
+        console.log("Rows updated (Requester):", res1.data?.length);
+        console.log("Rows updated (Target):", res2.data?.length);
+      }
         // משמרת 2 (של היעד) -> עוברת למבקש
         await sb.from("assignments")
           .update({ employee_id: sw.requester_id })
