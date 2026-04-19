@@ -505,34 +505,35 @@ async function loadSwapRequests() {
   S.swapRequests = data || [];
 }
 
-// 1. פונקציית טעינת הנתונים מהשרת
 async function loadSchedule() {
-    if (!S.profile?.business_id) return;
-    const weekDates = getWeekDates(S.weekOffset);
-    const weekStart = weekDates[0];
+  if (!S.profile?.business_id) return;
+  const weekDates = getWeekDates(S.weekOffset);
+  const weekStart = weekDates[0];
 
-    // שליפת ה-Schedule
-    const { data: sched } = await sb.from("schedules")
-        .select("*").eq("business_id", S.profile.business_id)
-        .eq("week_start", weekStart).maybeSingle();
+  const { data: sched } = await sb.from("schedules")
+    .select("*").eq("business_id", S.profile.business_id)
+    .eq("week_start", weekStart).maybeSingle();
 
-    if (!sched) { 
-        S.schedule = {}; 
-        S.assignments = []; 
-        return; 
-    }
+  if (!sched) { 
+    S.schedule = {}; 
+    S.assignments = []; 
+    return; 
+  }
 
-    S.schedule = sched;
-    if (sched.published) S.publishedWeeks.add(weekStart);
+  S.schedule = sched;
+  if (sched.published) S.publishedWeeks.add(weekStart);
 
-    // שליפת השיבוצים ועדכון הסטייט המקומי
-    const { data: assignments, error } = await sb.from("assignments")
-        .select("*").eq("schedule_id", sched.id);
+  const { data: assignments, error } = await sb.from("assignments")
+    .select("*").eq("schedule_id", sched.id);
 
-    if (!error) {
-        S.assignments = assignments || [];
-        console.log("נתונים נטענו בהצלחה. כמות שיבוצים:", S.assignments.length);
-    }
+  if (error) {
+    console.error("Error loading assignments:", error);
+    return;
+  }
+
+  // עדכון הזיכרון של האפליקציה בנתונים שחזרו מהשרת
+  S.assignments = assignments || []; 
+  console.log("Assignments loaded:", S.assignments.length);
 }
 
 // 2. פונקציית הציור של הלוח על המסך
