@@ -791,12 +791,12 @@ async function updateSwapStatus(id, status) {
 
     const sw = S.swapRequests.find(s => s.id === id);
     if (sw && status === "approved") {
-      // שימוש מדויק בעמודות הקיימות כדי לעדכן את העובד בשיבוץ
       if (sw.type === 'swap' && sw.target_employee_id) {
+        // החלפה מול עובד קיים
         await sb.from("assignments").update({ employee_id: sw.requester_id })
           .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_employee_id });
       } else {
-        // אם זה לקיחת משמרת ויש כבר מישהו שיושב שם (ואנחנו רוצים להחליף אותו)
+        // לקיחת משמרת
         const existing = S.assignments.find(a => a.date === sw.target_date && a.shift === sw.target_shift && a.employee_id !== sw.requester_id);
         if (existing) {
           await sb.from("assignments").update({ employee_id: sw.requester_id })
