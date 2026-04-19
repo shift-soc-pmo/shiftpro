@@ -764,22 +764,39 @@ async function updateVacStatus(id, status) {
 }
 
 async function updateSwapStatus(id, status) {
-  await sb.from("swap_requests").update({status}).eq("id",id);
-  await loadSwapRequests();
+  // 1. קודם כל מעדכנים את הסטטוס של הבקשה עצמה
+  await sb.from("swap_requests").update({ status }).eq("id", id);
   
-  const sw = S.swapRequests.find(s=>s.id===id);
-  if (sw) {
-    const req = getEmp(sw.requester_id);
-    if (req?.email) {
-      const sh = SHIFT_BY_ID[sw.target_shift];
-      sendEmail("swap_status", req.email, {
-        empName: req.name,
-        status: status === "approved" ? "אושרה" : "נדחתה",
-        details: `${sw.target_date} (${sh?.label || sw.target_shift})`
-      });
+  const sw = S.swapRequests.find(s => s.id === id);
+  if (!sw) return;
+
+  // 2. אם המנהל אישר - מבצעים את החילוף בפועל בלוח המשמרות
+  if (status === "approved") {
+    if (sw.type === 'swap') {
+      // חילוף בין שניים: מעדכנים את המשמרת של המבקש למזהה של היעד, ולהפך
+      await sb.from("assignments").update({ employee_id: sw.target_id }).match({ date: sw.requester_date, shift: sw.requester_shift, employee_id: sw.requester_id });
+      await sb.from("assignments").update({ employee_id: sw.requester_id }).match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_id });
+    } else {
+      // לקיחה/הצטרפות: פשוט מעדכנים מי האדם על המשמרת
+      await sb.from("assignments").update({ employee_id: sw.requester_id }).match({ date: sw.target_date, shift: sw.target_shift });
     }
   }
-  toast(status==="approved"?"חילוף אושר ✓":"חילוף נדחה"); 
+
+  // 3. טעינה מחדש של הנתונים ושל הלוח
+  await Promise.all([loadSwapRequests(), loadSchedule()]);
+  
+  // 4. שליחת המייל
+  const req = getEmp(sw.requester_id);
+  if (req?.email) {
+    const sh = SHIFT_BY_ID[sw.target_shift];
+    sendEmail("swap_status", req.email, {
+      empName: req.name,
+      status: status === "approved" ? "אושרה" : "נדחתה",
+      details: `${sw.target_date} (${sh?.label || sw.target_shift})`
+    });
+  }
+
+  toast(status === "approved" ? "החילוף בוצע והלוח עודכן ✓" : "הבקשה נדחתה");
   render();
 }
 // ══════════════════════════════════════════════════════
