@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0F172A">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Shift SOC PMO">
@@ -2620,7 +2621,7 @@ function render() {
 
 // PWA install prompt
 window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
+  // Don't prevent default — just save the event for later
   S.pwaPrompt = e;
 });
 
