@@ -466,7 +466,7 @@ function generateInviteCode(businessId) {
 async function loadAll(user) {
   S.user = user;
   const { data: profile } = await sb.from("profiles")
-    .select("*, business:businesses(*)").eq("id", user.id).single();
+    .select("*, business:businesses(*)").eq("id", user.id).maybeSingle();
   if (!profile) { S.view="login"; render(); return; }
   S.profile = profile;
   S.business = profile.business;
@@ -511,7 +511,7 @@ async function loadSchedule() {
   const weekStart = weekDates[0];
   const { data: sched } = await sb.from("schedules")
     .select("*").eq("business_id", S.profile.business_id)
-    .eq("week_start", weekStart).single();
+    .eq("week_start", weekStart).maybeSingle();
 
   if (!sched) { S.schedule={}; return; }
   if (sched.published) S.publishedWeeks.add(weekStart);
@@ -580,10 +580,10 @@ function saveScheduleToDB() {
     const weekStart = weekDates[0];
 
     let { data: sched } = await sb.from("schedules")
-      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
+      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).maybeSingle();
     if (!sched) {
       const { data: ns } = await sb.from("schedules")
-        .insert({business_id:S.profile.business_id, week_start:weekStart, created_by:S.user.id}).select().single();
+        .insert({business_id:S.profile.business_id, week_start:weekStart, created_by:S.user.id}).select().maybeSingle();
       sched = ns;
     }
     if (!sched) return;
@@ -623,7 +623,7 @@ async function handleRegister(name, businessName, email, password, inviteCode) {
   } else {
     // Manager creating new business
     const {data:biz, error:be} = await sb.from("businesses")
-      .insert({name:businessName, owner_id:auth.user.id}).select().single();
+      .insert({name:businessName, owner_id:auth.user.id}).select().maybeSingle();
     if(be) throw be;
     await sb.from("profiles").update({business_id:biz.id, role:"admin", name}).eq("id", auth.user.id);
   }
@@ -665,7 +665,7 @@ async function publishWeek() {
   const weekStart = wd[0];
   const weekLabel = fmtDate(wd[0]) + " — " + fmtDate(wd[6]);
   const {data:sched} = await sb.from("schedules")
-    .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
+    .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).maybeSingle();
   if (sched) await sb.from("schedules").update({published:true}).eq("id", sched.id);
   S.publishedWeeks.add(weekStart);
   S.showPublishModal = false;
