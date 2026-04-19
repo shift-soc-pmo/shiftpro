@@ -1636,7 +1636,7 @@ function viewStats() {
 // ── EMPLOYEE VIEW ──
 function viewEmpView() {
   const wrap = e("div");
-  const selfOnly = S.profile?.role === "employee";
+  const selfOnly = S.profile?.role === "employee" || S.testAsEmployee;
 
   // If employee, force self view
   if (selfOnly && !S.empViewId) S.empViewId = S.user.id;
@@ -1645,8 +1645,17 @@ function viewEmpView() {
     // Employee sees only their own data — no picker
     wrap.appendChild(div("page-title",["📋 המשמרות שלי"],{style:"margin-bottom:14px"}));
   } else {
-    // Manager sees picker for all employees
-    wrap.appendChild(div("page-title",["👤 תצוגת עובד"],{style:"margin-bottom:14px"}));
+    // Manager sees picker for all employees + test mode toggle
+    wrap.appendChild(div("section-header",[
+      div("page-title",["👤 תצוגת עובד"]),
+      e("div",{style:"display:flex;align-items:center;gap:8px"},[
+        e("span",{style:"font-size:12px;color:#64748B"},"מצב בדיקה:"),
+        e("button",{
+          style:`padding:6px 14px;border-radius:8px;border:1px solid ${S.testAsEmployee?"#10B981aa":"#334155"};background:${S.testAsEmployee?"#10B98122":"#1E293B"};color:${S.testAsEmployee?"#10B981":"#64748B"};font-family:inherit;font-size:12px;font-weight:700`,
+          onclick:()=>{ S.testAsEmployee=!S.testAsEmployee; if(S.testAsEmployee&&!S.empViewId) S.empViewId=S.employees[0]?.id; render(); }
+        },S.testAsEmployee?"✅ פעיל — לחץ לביטול":"הפעל")
+      ])
+    ],{style:"margin-bottom:14px"}));
     const picker = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"});
     S.employees.forEach((emp,idx) => {
       const col = ec(idx);
@@ -1682,6 +1691,17 @@ function viewEmpView() {
       ])
     ])
   ]));
+
+  // Test mode banner
+  if (S.testAsEmployee) {
+    wrap.appendChild(e("div",{style:"background:#F59E0B18;border:1px solid #F59E0B44;border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px"},[
+      e("div",{style:"display:flex;align-items:center;gap:8px"},[
+        e("span",{},"⚠️"),
+        e("span",{style:"font-size:13px;color:#FCD34D;font-weight:600"},"מצב בדיקה — רואה כמו עובד")
+      ]),
+      btn("btn-sm btn-sm-gray","צא",()=>{S.testAsEmployee=false;render();})
+    ]));
+  }
 
   // Tabs
   const tabs = [["shifts","📋 המשמרות שלי"],["schedule","📅 סידור"],["avail","📝 הגש זמינות"],["vacation","🌴 חופשה"]];
