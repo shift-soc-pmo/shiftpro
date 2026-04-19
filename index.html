@@ -2812,83 +2812,76 @@ function viewCalendar() {
 // RENDER
 // ══════════════════════════════════════════════════════
 function render() {
-  const app = $("app");
-  app.innerHTML = "";
+  const app = $("app");
+  app.innerHTML = "";
 
-  if (S.view==="loading") { app.appendChild(viewLoading()); return; }
-  if (S.view==="login")   { app.appendChild(viewLogin()); }
-  else {
-    const appWrap = div("app");
-    appWrap.appendChild(viewHeader());
-    const main = div("main");
+  if (S.view==="loading") { app.appendChild(viewLoading()); return; }
+  if (S.view==="login")   { app.appendChild(viewLogin()); }
+  else {
+    const appWrap = div("app");
+    appWrap.appendChild(viewHeader());
+    const main = div("main");
 
-    if (S.view==="home")       main.appendChild(viewHome());
-    else if(S.view==="schedule")  main.appendChild(viewSchedule()); // employees see read-only (buttons hidden)
-    else if(S.view==="calendar")  main.appendChild(viewCalendar());
-    else if(S.view==="employees" && isManager()) main.appendChild(viewEmployees());
-    else if(S.view==="employees" && !isManager()) { S.view="empview"; main.appendChild(viewEmpView()); }
-    else if(S.view==="vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
-    else if(S.view==="swaps")     main.appendChild(viewSwaps());
-    else if(S.view==="stats")     main.appendChild(viewStats());
-    else if(S.view==="empview")   main.appendChild(viewEmpView());
-    else if(S.view==="settings")  main.appendChild(viewSettings());
+    if (S.view==="home")       main.appendChild(viewHome());
+    else if(S.view==="schedule")  main.appendChild(viewSchedule());
+    else if(S.view==="calendar")  main.appendChild(viewCalendar());
+    else if(S.view==="employees" && isManager()) main.appendChild(viewEmployees());
+    else if(S.view==="employees" && !isManager()) { S.view="empview"; main.appendChild(viewEmpView()); }
+    else if(S.view==="vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
+    else if(S.view==="swaps")     main.appendChild(viewSwaps());
+    else if(S.view==="stats")     main.appendChild(viewStats());
+    else if(S.view==="empview")   main.appendChild(viewEmpView());
+    else if(S.view==="settings")  main.appendChild(viewSettings());
 
-    appWrap.appendChild(main);
-    app.appendChild(appWrap);
+    appWrap.appendChild(main);
+    app.appendChild(appWrap);
 
-    // Modals
-    if(S.constraintsEmp) app.appendChild(viewConstraintsModal());
-    if(S.showPublishModal) app.appendChild(viewPublishModal());
-  }
+    // Modals
+    if(S.constraintsEmp) app.appendChild(viewConstraintsModal());
+    if(S.showPublishModal) app.appendChild(viewPublishModal());
+  }
 
-  // Mobile bottom nav
-  if (S.view !== "login" && S.view !== "loading") {
-    const pendingVacs2 = S.vacations.filter(v=>v.status==="pending").length;
-    const bottomNav = e("div",{class:"mobile-bottom-nav"});
-    const isEmpOnly = S.profile?.role === "employee";
-    const bottomTabs = isEmpOnly ? [
-      {id:"empview",icon:"📋",label:"שלי"},
-      {id:"schedule",icon:"📅",label:"סידור"},
-      {id:"calendar",icon:"🗓️",label:"חודש"},
-      {id:"vacations",icon:"🌴",label:"חופשות"},
-      {id:"swaps",icon:"🔄",label:"חילופים"},
-    ] : [
-      {id:"home",icon:"🏠",label:"בית"},
-      {id:"schedule",icon:"📅",label:"סידור"},
-      {id:"calendar",icon:"🗓️",label:"חודש"},
-      {id:"employees",icon:"👥",label:"עובדים"},
-      {id:"vacations",icon:"🌴",label:"חופשות",badge:pendingVacs2},
-    ];
-    bottomTabs.forEach(t => {
-      const isActive = S.view===t.id;
-      const btn2 = e("button",{
-        style:`flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px 8px;border:none;border-top:2px solid ${isActive?"#3B82F6":"transparent"};background:transparent;color:${isActive?"#3B82F6":"#64748B"};font-family:inherit;cursor:pointer;position:relative;min-height:56px;transition:color 0.15s`,
-        onclick:()=>{S.view=t.id;S.selectedCell=null;render();}
-      },[
-        t.badge>0?e("span",{style:"position:absolute;top:6px;right:calc(50% - 16px);background:#EF4444;color:white;border-radius:50%;width:14px;height:14px;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center"},String(t.badge)):null,
-        e("span",{style:"font-size:22px;line-height:1"},t.icon),
-        e("span",{style:`font-size:10px;font-weight:${isActive?"700":"500"};margin-top:1px`},t.label)
-      ]);
-      bottomNav.appendChild(btn2);
-    });
-    app.appendChild(bottomNav);
-  }
+  // Mobile bottom nav (Fix: 4-5 buttons max, better touch targets)
+  if (S.view !== "login" && S.view !== "loading") {
+    const pendingVacs2 = S.vacations.filter(v=>v.status==="pending").length;
+    const pendingSwaps2 = S.swapRequests.filter(s=>s.status==="pending_manager").length;
+    const bottomNav = e("div",{class:"mobile-bottom-nav"});
+    
+    const isEmpOnly = S.profile?.role === "employee";
+    
+    // סינון ל-4 כפתורים מרכזיים בלבד במובייל למניעת צפיפות
+    const bottomTabs = isEmpOnly ? [
+      {id:"empview",icon:"📋",label:"שלי"},
+      {id:"schedule",icon:"📅",label:"סידור"},
+      {id:"vacations",icon:"🌴",label:"העדרויות"},
+      {id:"swaps",icon:"🔄",label:"חילופים"},
+    ] : [
+      {id:"home",icon:"🏠",label:"בית"},
+      {id:"schedule",icon:"📅",label:"סידור"},
+      {id:"vacations",icon:"🌴",label:"העדרויות",badge:pendingVacs2},
+      {id:"swaps",icon:"🔄",label:"חילופים",badge:pendingSwaps2},
+    ];
 
-  // Toast
-  if(S.toast) {
-    app.appendChild(e("div",{class:"toast"+(S.toast.type==="err"?" err":"")},S.toast.msg));
-  }
-}
+    bottomTabs.forEach(t => {
+      const isActive = S.view===t.id;
+      // כפתור מוגדל (רוחב 25%) כדי שהלחיצה תעבוד בצורה חלקה תמיד
+      const btn2 = e("button",{
+        style:`flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:12px 0 8px; border:none; border-top:2px solid ${isActive?"#3B82F6":"transparent"}; background:transparent; color:${isActive?"#3B82F6":"#94A3B8"}; font-family:inherit; cursor:pointer; position:relative; min-height:64px; transition:color 0.15s; width:25%;`,
+        onclick:()=>{S.view=t.id; S.selectedCell=null; render();}
+      },[
+        t.badge>0?e("span",{style:"position:absolute;top:6px;right:calc(50% - 18px);background:#EF4444;color:white;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center"},String(t.badge)):null,
+        e("span",{style:"font-size:24px;line-height:1;pointer-events:none;"},t.icon),
+        e("span",{style:`font-size:11px;font-weight:${isActive?"800":"600"};margin-top:2px;pointer-events:none;`},t.label)
+      ]);
+      bottomNav.appendChild(btn2);
+    });
+    app.appendChild(bottomNav);
+  }
 
-// PWA install prompt
-window.addEventListener("beforeinstallprompt", (e) => {
-  // Don't prevent default — just save the event for later
-  S.pwaPrompt = e;
-});
-
-// Service worker registration
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(()=>{});
+  // Toast
+  if(S.toast) {
+    app.appendChild(e("div",{class:"toast"+(S.toast.type==="err"?" err":"")},S.toast.msg));
+  }
 }
 
 // INIT
