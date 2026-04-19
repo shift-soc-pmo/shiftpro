@@ -1205,9 +1205,9 @@ function viewSchedule() {
     wdDisplay.forEach(date => {
       // --- התיקון הקריטי כאן ---
       // במקום לקחת מ-S.schedule, אנחנו שולפים מ-S.assignments המעודכן
-      const empIds = S.assignments
-        .filter(a => a.date === date && a.shift === shift.id)
-        .map(a => a.employee_id);
+     const empIds = S.assignments
+    .filter(a => a.date === date && a.shift === shift.id)
+    .map(a => a.employee_id);
       // ------------------------
 
       const isSel = S.selectedCell?.date === date && S.selectedCell?.shift === shift.id;
