@@ -662,36 +662,43 @@ async function sendEmail(type, toEmail, data) {
 
 let _saveTimer = null;
 function saveScheduleToDB() {
-  clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(async () => {
-    if (!S.profile?.business_id) return;
-    const weekDates = getWeekDates(S.weekOffset);
-    const weekStart = weekDates[0];
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(async () => {
+    if (!S.profile?.business_id) return;
+    const weekDates = getWeekDates(S.weekOffset);
+    const weekStart = weekDates[0];
 
-    let { data: sched } = await sb.from("schedules")
-      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
-    if (!sched) {
-      const { data: ns } = await sb.from("schedules")
-        .insert({business_id:S.profile.business_id, week_start:weekStart, created_by:S.user.id}).select().single();
-      sched = ns;
-    }
-    if (!sched) return;
+    let { data: sched } = await sb.from("schedules")
+      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
+    if (!sched) {
+      const { data: ns } = await sb.from("schedules")
+        .insert({business_id:S.profile.business_id, week_start:weekStart, created_by:S.user.id}).select().single();
+      sched = ns;
+    }
+    if (!sched) return;
 
-    await sb.from("assignments").delete().eq("schedule_id", sched.id);
-    const rows = [];
-    Object.entries(S.schedule).forEach(([date, shifts]) => {
-      Object.entries(shifts).forEach(([shift, empIds]) => {
-        empIds.forEach(empId => {
-          const ch = S.customHours[date+"|"+shift+"|"+empId];
-          rows.push({ schedule_id:sched.id, employee_id:empId, date, shift,
-            custom_start: ch?.start||null, custom_end: ch?.end||null });
-        });
-      });
-    });
-    if (rows.length) await sb.from("assignments").insert(rows);
-  }, 800);
+    await sb.from("assignments").delete().eq("schedule_id", sched.id);
+    const rows = [];
+    
+    Object.entries(S.schedule).forEach(([date, shifts]) => {
+      // התיקון: מדלגים על שדה ה-ID כי הוא לא תאריך עם משמרות
+      if (date === "id") return; 
+
+      Object.entries(shifts).forEach(([shift, empIds]) => {
+        // מוודאים שזו באמת רשימת עובדים תקינה לפני שרצים עליה
+        if (Array.isArray(empIds)) {
+          empIds.forEach(empId => {
+            const ch = S.customHours[date+"|"+shift+"|"+empId];
+            rows.push({ schedule_id:sched.id, employee_id:empId, date, shift,
+              custom_start: ch?.start||null, custom_end: ch?.end||null });
+          });
+        }
+      });
+    });
+    
+    if (rows.length) await sb.from("assignments").insert(rows);
+  }, 800);
 }
-
 async function handleLogin(email, password) {
   const {error} = await sb.auth.signInWithPassword({email,password});
   if (error) throw error;
