@@ -1,7 +1,7 @@
 {
-  "name": "ShiftPro — ניהול משמרות",
-  "short_name": "ShiftPro",
-  "description": "מערכת חכמה לניהול משמרות",
+  "name": "Shift SOC Prime Minister Office",
+  "short_name": "Shift SOC PMO",
+  "description": "מערכת ניהול משמרות",
   "start_url": "/shiftpro/",
   "scope": "/shiftpro/",
   "display": "standalone",
