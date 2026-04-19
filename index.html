@@ -518,26 +518,22 @@ function generateInviteCode(businessId) {
   return code;
 }
 
-async function loadAll(user) {
-  S.user = user;
-  const { data: profile } = await sb.from("profiles")
-    .select("*, business:businesses(*)").eq("id", user.id).single();
-  if (!profile) { S.view="login"; render(); return; }
-  S.profile = profile;
-  S.business = profile.business;
-  S.inviteCode = profile.business_id ? generateInviteCode(profile.business_id) : null;
+async function loadAll(user){
+  S.user = user;
+  const {data:p} = await sb.from("profiles").select("*, business:businesses(*)").eq("id", user.id).single();
+  if(!p){ S.view="login"; render(); return; }
+  S.profile = p; 
+  S.business = p.business;
+  
+  // הגדרת ID ברירת מחדל לתצוגת עובד
+  S.empViewId = user.id; 
 
-  await Promise.all([loadEmployees(), loadVacations(), loadSwapRequests(), loadSchedule()]);
-  // Role-based default view
-  if (S.profile.role === "employee") {
-    S.view = "empview";
-    S.empViewId = S.user.id; // default to self
-  } else {
-    S.view = "home";
-  }
-  render();
+  await Promise.all([loadEmployees(), loadVacations(), loadSchedule()]);
+  
+  // אם נכנס מנהל, הוא הולך לבית. אם עובד, לדשבורד שלו.
+  S.view = p.role === "employee" ? "empview" : "home";
+  render();
 }
-
 async function loadEmployees() {
   if (!S.profile?.business_id) return;
   const { data } = await sb.from("profiles")
@@ -1925,110 +1921,73 @@ function viewStats() {
 
 // ── EMPLOYEE VIEW ──
 function viewEmpView() {
-  const wrap = e("div", {style: "position: relative; min-height: 80vh;"});
-  const selfOnly = S.profile?.role === "employee" || S.testAsEmployee;
-  if (selfOnly && !S.empViewId) S.empViewId = S.user.id;
+  const wrap = div("main", [], {style:"position:relative; min-height:85vh; padding-top:10px;"});
+  
+  // וידוא קיום ID
+  if (!S.empViewId && S.user) S.empViewId = S.user.id;
+  const emp = getEmp(S.empViewId);
 
-  const emp = S.employees.find(e=>e.id===S.empViewId);
-  if (!emp) return div("card",[e("div",{style:"text-align:center;padding:40px"},"טוען נתונים...")]);
+  if(!emp) {
+    return div("main",[e("div",{style:"text-align:center;padding:40px;color:#64748B"},"מרענן נתונים...")]);
+  }
 
-  // 1. Header Area
-  wrap.appendChild(e("div",{style:"margin-bottom:20px; padding: 10px 5px; display:flex; justify-content:space-between; align-items:center;"},[
-    e("div", {}, [
-      e("div",{style:"font-size:14px; color:#64748B;"}, "שלום,"),
-      e("div",{style:"font-size:26px; font-weight:900; color:#F1F5F9;"}, emp.name.split(" ")[0] + " 👋")
-    ]),
-    !selfOnly ? btn("btn-sm btn-sm-gray", "החלף עובד", () => { S.empViewId = null; render(); }) : null
-  ]));
+  // 1. פנייה אישית
+  wrap.appendChild(div("", [
+    e("div",{style:"font-size:14px;color:#64748B"},"שלום,"),
+    e("div",{style:"font-size:28px;font-weight:900"},emp.name.split(" ")[0] + " 👋")
+  ], {style:"margin-bottom:20px"}));
 
-  // 2. Next Shift Banner
+  // 2. המשמרת הבאה
   const myShifts = [];
-  const wd = getWeekDates(S.weekOffset);
-  wd.forEach(date => {
-    SHIFTS.forEach(sh => {
-      if ((S.schedule[date]?.[sh.id]||[]).includes(emp.id)) {
-        myShifts.push({date, shift: sh, ch: S.customHours[date+"|"+sh.id+"|"+emp.id]});
-      }
-    });
+  const wd = getWeekDates(0);
+  wd.forEach(d => {
+    SHIFTS.forEach(s => { if((S.schedule[d]?.[s.id]||[]).includes(emp.id)) myShifts.push({date:d,shift:s,ch:S.customHours[d+"|"+s.id+"|"+emp.id]}) });
   });
-
-  const nextShift = myShifts.find(s => s.date >= today());
-  if (nextShift) {
-    const dt = new Date(nextShift.date + "T00:00:00");
-    wrap.appendChild(e("div", {
-      style: `background: linear-gradient(135deg, ${nextShift.shift.color}, #1e293b); border-radius: 24px; padding: 24px; margin-bottom: 24px; color: white; position: relative; overflow: hidden; box-shadow: 0 15px 30px -10px ${nextShift.shift.color}66;`
-    }, [
-      e("div", {style:"font-size:12px; font-weight:700; text-transform:uppercase; opacity:0.8; margin-bottom:15px;"}, "📌 המשמרת הקרובה שלך"),
-      e("div", {style:"font-size:32px; font-weight:900; margin-bottom:5px;"}, nextShift.shift.label),
-      e("div", {style:"font-size:18px; font-weight:600; opacity:0.9;"}, `${DAYS[dt.getDay()]} ${dt.getDate()}/${dt.getMonth()+1}`),
-      e("div", {style:"font-size:16px; margin-top:10px; background:rgba(0,0,0,0.2); display:inline-block; padding:4px 12px; border-radius:20px;"}, 
-        (nextShift.ch ? nextShift.ch.start : nextShift.shift.start) + " – " + (nextShift.ch ? nextShift.ch.end : nextShift.shift.end)
-      )
+  const next = myShifts.find(x=>x.date >= today());
+  if(next){
+    wrap.appendChild(e("div",{style:`background:linear-gradient(135deg,${next.shift.color},#1e293b);padding:24px;border-radius:24px;color:white;margin-bottom:24px;box-shadow:0 12px 25px -5px ${next.shift.color}55`},[
+      e("div",{style:"font-size:12px;font-weight:700;opacity:0.8;margin-bottom:10px;"},"📌 המשמרת הקרובה שלך"),
+      e("div",{style:"font-size:32px;font-weight:900"},next.shift.label),
+      e("div",{style:"font-size:18px;font-weight:600;opacity:0.9"},DAYS[new Date(next.date).getDay()] + " " + fmtDate(next.date)),
+      e("div",{style:"font-size:14px;margin-top:8px;background:rgba(0,0,0,0.2);display:inline-block;padding:4px 12px;border-radius:20px"}, (next.ch?next.ch.start:next.shift.start)+" - "+(next.ch?next.ch.end:next.shift.end))
     ]));
   }
 
-  // 3. Tab Content Area
-  const content = div("emp-active-tab-content", [], {style: "margin-top:10px; padding-bottom: 100px;"});
-  
-  if (S.empViewTab === "shifts") {
-    const list = div("");
-    if (myShifts.length === 0) {
-      list.appendChild(e("div", {style:"text-align:center; padding:40px; color:#475569;"}, "אין משמרות משובצות"));
-    } else {
-      myShifts.forEach(s => {
-        const dt = new Date(s.date + "T00:00:00");
-        const isPast = s.date < today();
-        list.appendChild(e("div", {
-          style: `display:flex; align-items:center; background:#1E293B; margin-bottom:10px; padding:15px; border-radius:18px; border:1px solid #334155; opacity:${isPast?0.5:1}`
-        }, [
-          e("div", {style:`width:45px; height:45px; border-radius:12px; background:${s.shift.color}15; display:flex; flex-direction:column; align-items:center; justify-content:center; margin-left:15px;`}, [
-            e("div", {style:`font-size:18px; font-weight:900; color:${s.shift.color}`}, dt.getDate()),
-            e("div", {style:`font-size:9px; color:${s.shift.color}; font-weight:700`}, DAYS[dt.getDay()].slice(0,2))
-          ]),
-          e("div", {style:"flex:1"}, [
-            e("div", {style:"font-weight:800; font-size:15px; color:#F1F5F9;"}, s.shift.label),
-            e("div", {style:"font-size:13px; color:#64748B;"}, (s.ch?s.ch.start:s.shift.start) + " – " + (s.ch?s.ch.end:s.shift.end))
-          ])
-        ]));
-      });
-    }
-    content.appendChild(list);
+  // 3. תוכן הטאב
+  const content = div("emp-content-area", [], {style:"padding-bottom:100px"});
+  if(S.empViewTab === "shifts") {
+    myShifts.forEach(s => {
+      const isPast = s.date < today();
+      content.appendChild(div("", [
+        div("",[e("div",{style:"font-size:18px;font-weight:900"},new Date(s.date).getDate()),e("div",{style:"font-size:10px"},DAYS[new Date(s.date).getDay()].slice(0,2))], {style:`width:45px;height:45px;border-radius:12px;background:${s.shift.color}22;color:${s.shift.color};display:flex;flex-direction:column;align-items:center;justify-content:center;margin-left:15px`}),
+        div("",[e("div",{style:"font-weight:800;color:#F1F5F9"},s.shift.label),e("div",{style:"font-size:13px;color:#64748B"},(s.ch?s.ch.start:s.shift.start)+"-"+(s.ch?s.ch.end:s.shift.end))],{style:"flex:1"}),
+        isPast ? e("span",{style:"font-size:18px"},"✅") : e("span",{style:"font-size:18px"},"🗓️")
+      ], {style:`display:flex;align-items:center;background:#1E293B;padding:15px;border-radius:18px;margin-bottom:10px;border:1px solid #334155;opacity:${isPast?0.5:1}`}));
+    });
   } 
-  else if (S.empViewTab === "vacation") content.appendChild(viewEmpVacations());
-  else if (S.empViewTab === "avail") content.appendChild(viewEmpAvailForm());
-  else if (S.empViewTab === "schedule") content.appendChild(viewEmpFullSchedule(emp, wd));
+  else if(S.empViewTab === "vacation") content.appendChild(viewEmpVacations());
+  else if(S.empViewTab === "avail") content.appendChild(viewEmpAvailForm());
+  else if(S.empViewTab === "schedule") content.appendChild(viewEmpFullSchedule(emp, wd));
 
   wrap.appendChild(content);
 
-  // 4. Floating Nav Bar עם כפתור הבית (📅)
-  const navBar = e("div", {
-    style: "position: fixed; bottom: 85px; left: 50%; transform: translateX(-50%); background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(10px); padding: 6px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 5px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 1000; width: 92%; max-width: 380px;"
-  });
-
-  const empTabs = [
-    {id:"shifts", icon:"📋", label:"משמרות"},
-    {id:"vacation", icon:"🌴", label:"העדרות"},
-    {id:"home_btn", icon:"📅", label:"בית"},
-    {id:"avail", icon:"🚫", label:"חסימה"},
-    {id:"schedule", icon:"📅", label:"סידור"}
+  // 4. תפריט צף (Floating Nav)
+  const navBar = div("", [], {style:"position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(30,41,59,0.96);backdrop-filter:blur(12px);padding:8px;border-radius:24px;display:flex;align-items:center;gap:5px;box-shadow:0 15px 35px rgba(0,0,0,0.6);z-index:1000;width:92%;max-width:380px;border:1px solid rgba(255,255,255,0.1)"});
+  const tabs = [
+    {id:"shifts",i:"📋",l:"משמרות"}, {id:"vacation",i:"🌴",l:"העדרות"}, 
+    {id:"home_btn",i:"📅",l:"בית"}, {id:"avail",i:"🚫",l:"חסימה"}, {id:"schedule",i:"📅",l:"סידור"}
   ];
-
-  empTabs.forEach(t => {
-    const isHome = t.id === "home_btn";
-    const active = S.empViewTab === t.id;
-    const btnStyle = isHome 
-      ? `width: 50px; height: 50px; border-radius: 50%; background: linear-gradient(135deg, #3B82F6, #6366F1); display: flex; align-items: center; justify-content: center; border: none; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); margin: 0 5px; flex-shrink: 0;`
-      : `flex:1; border:none; background:transparent; color:${active ? "#3B82F6" : "#94A3B8"}; padding:10px 2px; border-radius:15px; display:flex; flex-direction:column; align-items:center; gap:2px; transition:all 0.2s;`;
-
-    navBar.appendChild(e("button", {
-      style: btnStyle,
-      onclick: () => { S.empViewTab = isHome ? "shifts" : t.id; render(); }
-    }, [
-      e("span", {style: isHome ? "font-size:22px" : "font-size:18px"}, isHome ? "📅" : t.icon),
-      !isHome ? e("span", {style: `font-size: 9px; font-weight: 700;`}, t.label) : null
+  tabs.forEach(t=>{
+    const isH = t.id==="home_btn"; const act = S.empViewTab===t.id;
+    navBar.appendChild(e("button",{
+      style:isH ? "width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#3B82F6,#6366F1);border:none;font-size:24px;box-shadow:0 5px 15px rgba(59,130,246,0.4);margin:0 5px" 
+                 : `flex:1;background:transparent;border:none;color:${act?"#3B82F6":"#94A3B8"};display:flex;flex-direction:column;align-items:center;gap:3px;`,
+      onclick:()=>{S.empViewTab=isH?"shifts":t.id;render()}
+    },[
+      e("span",{style:isH?"":"font-size:20px"},isH?"📅":t.i),
+      !isH?e("span",{style:"font-size:9px;font-weight:800"},t.l):null
     ]));
   });
-  
   wrap.appendChild(navBar);
   return wrap;
 }
@@ -2067,47 +2026,27 @@ function viewEmpAvailForm() {
     return wrap;
 }
 function viewEmpFullSchedule(emp, wd) {
-  const card = div("card", [
-    e("div", {style:"display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"}, [
-      e("div", {style:"font-weight:900; font-size:18px; color:#F1F5F9;"}, "📅 סידור עבודה שבועי"),
-      e("div", {style:"font-size:11px; background:#3B82F622; color:#60A5FA; padding:4px 10px; border-radius:20px; font-weight:700;"}, "קריאה בלבד")
-    ])
-  ]);
-
-  const scrollArea = div("sched-scroll-area", [], {style: "overflow-x: auto; margin: 0 -10px; padding: 0 10px;"});
-  const daysContainer = e("div", {style: "display: flex; gap: 12px; min-width: 800px; padding-bottom: 10px;"});
-
+  const container = div("");
+  container.appendChild(e("div",{style:"font-weight:900;font-size:18px;margin-bottom:15px;text-align:right"},"📅 סידור עבודה שבועי"));
+  const scroll = div("sched-wrap", [], {style:"overflow-x:auto; margin:0 -10px; padding:10px; display:flex; gap:12px;"});
   wd.forEach(date => {
-    const dt = new Date(date + "T00:00:00");
-    const isToday = date === today();
-    
-    const dayCard = e("div", {
-      style: `flex: 1; min-width: 130px; background: ${isToday ? "#1E3A5F33" : "#0F172A"}; border-radius: 16px; border: 1px solid ${isToday ? "#3B82F6" : "#1E293B"}; overflow: hidden;`
-    }, [
-      e("div", {style: `padding: 10px; text-align: center; background: ${isToday ? "#3B82F6" : "#1E293B"};`}, [
-        e("div", {style: `font-size: 11px; font-weight: 800; color: ${isToday ? "white" : "#64748B"};`}, DAYS[dt.getDay()]),
-        e("div", {style: `font-size: 18px; font-weight: 900; color: white;`}, dt.getDate())
-      ]),
-      e("div", {style: "padding: 8px; display: flex; flex-direction: column; gap: 10px;"}, 
-        SHIFTS.map(sh => {
-          const empIds = S.schedule[date]?.[sh.id] || [];
-          const isMe = empIds.includes(emp.id);
-          return e("div", {
-            style: `padding: 8px; border-radius: 12px; background: ${isMe ? sh.color + "22" : "transparent"}; border: 1px solid ${isMe ? sh.color + "44" : "transparent"};`
-          }, [
-            e("div", {style: `font-size: 10px; font-weight: 800; color: ${sh.color}; margin-bottom: 4px;`}, sh.label),
-            e("div", {style: "display: flex; flex-direction: column; gap: 2px;"}, 
-              empIds.length > 0 ? empIds.map(id => e("div", {style: `font-size: 11px; color: ${id === emp.id ? "#FFF" : "#94A3B8"}; font-weight: ${id === emp.id ? "900" : "500"}`}, (id === emp.id ? "⭐ " : "") + getEmp(id)?.name.split(" ")[0])) : [e("div", {style: "font-size: 10px; color: #334155;"}, "—")]
-            )
-          ]);
-        })
-      )
-    ]);
-    daysContainer.appendChild(dayCard);
+    const dt = new Date(date+"T00:00:00");
+    const isT = date===today();
+    const dayBox = div("", [
+      div("", [e("div",{style:"font-size:11px;font-weight:800;color:"+(isT?"white":"#64748B")},DAYS[dt.getDay()]),e("div",{style:"font-size:20px;font-weight:900;color:white"},dt.getDate())], {style:`padding:12px;text-align:center;background:${isT?"#3B82F6":"#1E293B"};border-radius:16px 16px 0 0`}),
+      div("", SHIFTS.map(s => {
+        const ids = S.schedule[date]?.[s.id]||[];
+        const me = ids.includes(emp.id);
+        return div("", [
+          e("div",{style:`font-size:10px;font-weight:800;color:${s.color};margin-bottom:4px`},s.label),
+          div("", ids.length ? ids.map(id => e("div",{style:`font-size:12px;font-weight:${id===emp.id?900:600};color:${id===emp.id?"#FFF":"#94A3B8"}`},(id===emp.id?"⭐ ":"")+getEmp(id)?.name.split(" ")[0])) : [div("",["—"],{style:"color:#334155;font-size:10px"})])
+        ], {style:`padding:10px;margin-bottom:8px;border-radius:12px;background:${me?s.color+"22":"transparent"};border:1px solid ${me?s.color+"44":"#33415522"}`});
+      }), {style:"padding:10px;background:#0F172A;border-radius:0 0 16px 16px;min-height:220px"})
+    ], {style:`flex:1;min-width:130px;border-radius:16px;border:1px solid ${isT?"#3B82F6":"#1E293B"};overflow:hidden`});
+    scroll.appendChild(dayBox);
   });
-  scrollArea.appendChild(daysContainer);
-  card.appendChild(scrollArea);
-  return card;
+  container.appendChild(scroll); 
+  return container;
 }
   
 // ── CONSTRAINTS MODAL ──
@@ -2488,79 +2427,54 @@ function viewSettings() {
 // ══════════════════════════════════════════════════════
 // EMPLOYEE VACATION VIEW (self-service)
 // ══════════════════════════════════════════════════════
-function viewEmpVacations() {
-  const wrap = e("div");
-  wrap.appendChild(div("section-header",[
-    div("page-title",["🌴 חופשות ומילואים"]),
-    btn("btn-add","+ בקשה חדשה",()=>{S.showAddVac=!S.showAddVac;render();})
-  ]));
-
-  if (S.showAddVac) {
-    const form = div("card",[div("card-title",["בקשה חדשה"])]);
-    if(!S.newVac.type) S.newVac.type = "vacation";
-    const typeSel = e("select",{class:"fi",onchange:ev=>{S.newVac.type=ev.target.value}},[e("option",{value:"vacation"},"חופשה 🌴"),e("option",{value:"reserve"},"מילואים 🎖️")]);
-
-    form.appendChild(div("form-col",[e("label",{class:"form-label"},"סוג בקשה"),typeSel],{style:"margin-bottom:12px"}));
-    form.appendChild(div("form-row",[
-      div("form-col",[e("label",{class:"form-label"},"מתאריך *"),e("input",{class:"fi",type:"date",min:today(),value:S.newVac.startDate,oninput:ev=>{S.newVac.startDate=ev.target.value}})]),
-      div("form-col",[e("label",{class:"form-label"},"עד תאריך *"),e("input",{class:"fi",type:"date",min:today(),value:S.newVac.endDate,oninput:ev=>{S.newVac.endDate=ev.target.value}})])
-    ]));
-    form.appendChild(div("form-col",[e("label",{class:"form-label"},"סיבה"),e("input",{class:"fi",placeholder:"אופציונלי",value:S.newVac.reason,oninput:ev=>{S.newVac.reason=ev.target.value}})],{style:"margin-bottom:12px"}));
-    form.appendChild(div("form-actions",[
-      btn("btn-add","שלח בקשה",async(ev)=>{ 
-        ev.target.disabled = true;
-        S.newVac.employeeId = S.user.id; 
-        await addVacation(); 
-      },{style:"flex:1"}),
-      btn("btn-sm btn-sm-gray","ביטול",()=>{S.showAddVac=false;render();})
-    ]));
-    wrap.appendChild(form);
-  }
-
-  const myVacs = S.vacations.filter(v=>v.employee_id===S.user.id);
-  const myCard = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:12px"},"הבקשות שלי")]);
+function viewEmpVacations(){
+  const my = S.vacations.filter(x=>x.employee_id===S.user.id);
+  const wrap = div("");
+  wrap.appendChild(btn("btn-add","+ בקשה חדשה",()=>{S.showAddVac=!S.showAddVac;render()},{style:"width:100%;margin-bottom:15px;padding:15px"}));
   
-  if (myVacs.length === 0) {
-    myCard.appendChild(e("div",{style:"text-align:center;padding:24px;color:#64748B;font-size:13px"},"אין בקשות חופשה עדיין"));
-  } else {
-    myVacs.sort((a,b)=>String(b.start_date||"").localeCompare(String(a.start_date||""))).forEach(vac=>{
-      const icon = vac.type === 'reserve' ? '🎖️' : '🌴';
-      const st = vac.status==="approved"?"approved":vac.status==="rejected"?"rejected":"pending";
-      const label = vac.status==="approved"?"אושרה ✓":vac.status==="rejected"?"נדחתה ✗":"ממתין לאישור";
-      
-      if (S.editingVac === vac.id) {
-         myCard.appendChild(e("div",{style:"display:flex;flex-wrap:wrap;gap:8px;padding:12px;background:#0F172A;border-radius:10px;margin-bottom:8px;border:1px solid #334155"},[
-           e("div",{style:"display:flex;gap:6px;align-items:center;width:100%"},[
-             e("input", {type:"date", id:"mev_s_"+vac.id, value:vac.start_date, class:"fi", style:"padding:6px;font-size:12px;flex:1"}),
-             e("span",{style:"color:#94A3B8"},"עד"),
-             e("input", {type:"date", id:"mev_e_"+vac.id, value:vac.end_date, class:"fi", style:"padding:6px;font-size:12px;flex:1"})
-           ]),
-           e("div",{style:"display:flex;gap:4px;width:100%;margin-top:6px"},[
-             btn("btn-sm btn-sm-green", "שמור ושלח מחדש", () => {
-                const ns = $("mev_s_"+vac.id).value; const ne = $("mev_e_"+vac.id).value;
-                if(ns&&ne&&ns<=ne) editVacation(vac.id, ns, ne, "pending"); else toast("תאריכים לא תקינים","err");
-             },{style:"flex:1"}),
-             btn("btn-sm btn-sm-gray", "ביטול", () => { S.editingVac = null; render(); })
-           ])
-         ]));
-      } else {
-         myCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;background:#0F172A;border-radius:10px;padding:12px;margin-bottom:8px;border:1px solid #1E293B"},[
-           e("div",{style:"flex:1"},[
-             e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},`${icon} ${(vac.start_date||"")} — ${(vac.end_date||"")}`),
-             vac.reason?e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},vac.reason):null
-           ]),
-           e("div",{style:"display:flex;flex-direction:column;align-items:flex-end;gap:6px"},[
-              e("span",{class:"status-badge status-"+st},label),
-              e("div",{style:"display:flex;gap:4px"},[
-                btn("btn-sm btn-sm-blue", "✏️", () => { S.editingVac = vac.id; render(); }, {style:"font-size:12px;padding:4px 6px"}),
-                btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(vac.id), {style:"font-size:12px;padding:4px 6px"})
-              ])
-           ])
-         ]));
-      }
-    });
+  if(S.showAddVac){
+    const f = div("card",[
+      div("card-title",["בקשה חדשה"]),
+      e("label",{class:"form-label"},"סוג"), e("select",{class:"fi",onchange:x=>S.newVac.type=x.target.value},[e("option",{value:"vacation"},"חופשה 🌴"),e("option",{value:"reserve"},"מילואים 🎖️")]),
+      div("form-row",[
+        div("form-col",[e("label",{class:"form-label",style:"margin-top:10px"},"מתאריך"), e("input",{type:"date",class:"fi",oninput:x=>S.newVac.startDate=x.target.value})]),
+        div("form-col",[e("label",{class:"form-label",style:"margin-top:10px"},"עד תאריך"), e("input",{type:"date",class:"fi",oninput:x=>S.newVac.endDate=x.target.value})])
+      ]),
+      btn("btn-primary","שלח בקשה לאישור",()=>addVacation(),{style:"width:100%;margin-top:10px"})
+    ]);
+    wrap.appendChild(f);
   }
-  wrap.appendChild(myCard);
+
+  const list = div("");
+  my.sort((a,b)=>String(b.start_date).localeCompare(String(a.start_date))).forEach(v => {
+    const act = S.editingVac===v.id;
+    const icon = v.type==="reserve"?"🎖️":"🌴";
+    const st = v.status==="approved"?"approved":v.status==="rejected"?"rejected":"pending";
+    const label = v.status==="approved"?"אושרה ✓":v.status==="rejected"?"נדחתה ✗":"ממתין לאישור";
+
+    list.appendChild(div("card",[
+      act ? div("",[
+        e("div",{style:"display:flex;gap:5px;margin-bottom:10px"},[
+          e("input",{type:"date",id:"es"+v.id,class:"fi",value:v.start_date,style:"flex:1"}),
+          e("input",{type:"date",id:"ee"+v.id,class:"fi",value:v.end_date,style:"flex:1"})
+        ]),
+        div("form-actions",[
+          btn("btn-sm btn-sm-green","שמור ושלח",()=>editVacation(v.id,$("es"+v.id).value,$("ee"+v.id).value,"pending"),{style:"flex:1"}),
+          btn("btn-sm btn-sm-gray","ביטול",()=>S.editingVac=null||render())
+        ])
+      ]): div("display:flex;justify-content:space-between;align-items:center",[
+        div("",[
+          e("div",{style:"font-weight:800;font-size:15px"},`${icon} ${v.start_date} — ${v.end_date}`),
+          e("div",{class:"status-badge status-"+st,style:"margin-top:5px"},label)
+        ],{style:"flex:1"}),
+        div("",[
+          btn("btn-sm btn-sm-blue","✏️",()=>S.editingVac=v.id,{style:"margin-left:5px"}),
+          btn("btn-sm btn-sm-red","🗑️",()=>deleteVacRequest(v.id))
+        ])
+      ],{style:"display:flex;align-items:center"})
+    ],{style:"background:#0F172A;border:1px solid #1E293B"}));
+  });
+  wrap.appendChild(list);
   return wrap;
 }
 // ══════════════════════════════════════════════════════
