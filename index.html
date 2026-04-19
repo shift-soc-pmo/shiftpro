@@ -1554,141 +1554,113 @@ function viewEmployees() {
 // ── VACATIONS ──
 function viewVacations() {
   const wrap = e("div");
-  
-  // הוספת בלוק try-catch כדי למנוע מסך לבן גם אם יש שגיאת רינדור
-  try {
-    wrap.appendChild(div("section-header",[
-      div("page-title",["🌴 חופשות ומילואים"]),
-      btn("btn-add","+ בקשה חדשה",()=>{S.showAddVac=!S.showAddVac;render();})
+  wrap.appendChild(div("section-header",[
+    div("page-title",["🌴 חופשות ומילואים"]),
+    btn("btn-add","+ בקשה חדשה",()=>{S.showAddVac=!S.showAddVac;render();})
+  ]));
+
+  if (S.showAddVac) {
+    const form = div("card",[div("card-title",["בקשה חדשה"])]);
+    if(!S.newVac.type) S.newVac.type = "vacation"; 
+    const empSel = e("select",{class:"fi",onchange:ev=>{S.newVac.employeeId=ev.target.value}});
+    empSel.appendChild(e("option",{value:""},"בחר עובד"));
+    S.employees.forEach(emp => empSel.appendChild(e("option",{value:emp.id,selected:S.newVac.employeeId===emp.id?"selected":null},emp.name)));
+    const typeSel = e("select",{class:"fi",onchange:ev=>{S.newVac.type=ev.target.value}},[e("option",{value:"vacation"},"חופשה 🌴"),e("option",{value:"reserve"},"מילואים 🎖️")]);
+
+    form.appendChild(div("form-row",[div("form-col",[e("label",{class:"form-label"},"עובד *"),empSel]),div("form-col",[e("label",{class:"form-label"},"סוג בקשה"),typeSel])]));
+    form.appendChild(div("form-row",[
+      div("form-col",[e("label",{class:"form-label"},"מתאריך *"),e("input",{class:"fi",type:"date",value:S.newVac.startDate,oninput:ev=>{S.newVac.startDate=ev.target.value}})]),
+      div("form-col",[e("label",{class:"form-label"},"עד תאריך *"),e("input",{class:"fi",type:"date",value:S.newVac.endDate,oninput:ev=>{S.newVac.endDate=ev.target.value}})])
     ]));
-
-    if (S.showAddVac) {
-      const form = div("card",[div("card-title",["בקשה חדשה"])]);
-      if(!S.newVac.type) S.newVac.type = "vacation"; 
-      
-      const empSel = e("select",{class:"fi",onchange:ev=>{S.newVac.employeeId=ev.target.value}});
-      empSel.appendChild(e("option",{value:""},"בחר עובד"));
-      S.employees.forEach(emp => empSel.appendChild(e("option",{value:emp.id,selected:S.newVac.employeeId===emp.id?"selected":null},emp.name)));
-      
-      const typeSel = e("select",{class:"fi",onchange:ev=>{S.newVac.type=ev.target.value}},[e("option",{value:"vacation"},"חופשה 🌴"),e("option",{value:"reserve"},"מילואים 🎖️")]);
-
-      form.appendChild(div("form-row",[div("form-col",[e("label",{class:"form-label"},"עובד *"),empSel]),div("form-col",[e("label",{class:"form-label"},"סוג בקשה"),typeSel])]));
-      form.appendChild(div("form-row",[
-        div("form-col",[e("label",{class:"form-label"},"מתאריך *"),e("input",{class:"fi",type:"date",value:S.newVac.startDate,oninput:ev=>{S.newVac.startDate=ev.target.value}})]),
-        div("form-col",[e("label",{class:"form-label"},"עד תאריך *"),e("input",{class:"fi",type:"date",value:S.newVac.endDate,oninput:ev=>{S.newVac.endDate=ev.target.value}})])
-      ]));
-      form.appendChild(div("form-col",[e("label",{class:"form-label"},"סיבה"),e("input",{class:"fi",placeholder:"אופציונלי",value:S.newVac.reason,oninput:ev=>{S.newVac.reason=ev.target.value}})],{style:"margin-bottom:12px"}));
-      form.appendChild(div("form-actions",[
-        btn("btn-add","שלח",async(ev)=>{ ev.target.disabled=true; await addVacation(); },{style:"flex:1"}),
-        btn("btn-sm btn-sm-gray","ביטול",()=>{S.showAddVac=false;render();})
-      ]));
-      wrap.appendChild(form);
-    }
-
-    // הגישה הבטוחה: מפצלים רק לשתי קבוצות
-    // קבוצה 1: ממתין - רק מה שמוגדר במפורש כ-pending
-    const pending = [];
-    // קבוצה 2: היסטוריה - כל השאר (כולל null, approved, rejected, או סתם שגיאות)
-    const rest = [];
-
-    S.vacations.forEach(v => {
-      if (v.status === "pending") {
-        pending.push(v);
-      } else {
-        rest.push(v);
-      }
-    });
-
-    if (pending.length > 0) {
-      const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#F59E0B;margin-bottom:12px"},`⏳ ממתינות לאישור (${pending.length})`)]);
-      pending.forEach(vac => {
-        const emp = getEmp(vac.employee_id);
-        const icon = vac.type === 'reserve' ? '🎖️' : '🌴';
-        card.appendChild(e("div",{style:"display:flex;align-items:center;gap:10px;background:#0F172A;border-radius:10px;padding:10px 14px;margin-bottom:6px"},[
-          e("div",{style:"flex:1"},[
-            e("div",{style:"font-weight:700;font-size:13px"},`${icon} ${emp?.name || "עובד לא ידוע"}`),
-            e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},`${vac.start_date || "חסר תאריך"} — ${vac.end_date || "חסר תאריך"}`),
-            vac.reason ? e("div",{style:"font-size:11px;color:#475569;margin-top:2px"},vac.reason) : null
-          ]),
-          btn("btn-sm btn-sm-green","אשר",()=>updateVacStatus(vac.id,"approved")),
-          btn("btn-sm btn-sm-red","דחה",()=>updateVacStatus(vac.id,"rejected"))
-        ]));
-      });
-      wrap.appendChild(card);
-    }
-
-    if (rest.length > 0) {
-      const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:12px"},`היסטוריה (${rest.length})`)]);
-      const tbl = e("table",[e("thead",[e("tr",[e("th",{},"עובד"),e("th",{},"תאריכים"),e("th",{},"סטטוס"),e("th",{},"פעולות")])])]);
-      const tbody = e("tbody");
-      
-      // מיון יציב (גם אם חסר תאריך, זה לא יקרוס)
-      rest.sort((a,b)=>{
-        const dateA = a.start_date || "";
-        const dateB = b.start_date || "";
-        return dateB.localeCompare(dateA);
-      }).slice(0,30).forEach(vac => {
-        const emp = getEmp(vac.employee_id);
-        const icon = vac.type === 'reserve' ? '🎖️' : '🌴';
-        
-        // הגדרת סטטוס בטוחה
-        let stClass = "pending";
-        let label = "לא מוגדר";
-        if (vac.status === "approved") { stClass = "approved"; label = "אושרה ✓"; }
-        else if (vac.status === "rejected") { stClass = "rejected"; label = "נדחתה ✗"; }
-        
-        if (S.editingVac === vac.id) {
-          tbody.appendChild(e("tr",[
-            e("td",{style:"font-weight:600; white-space:nowrap"},`${icon} ${emp?.name || "עובד"}`),
-            e("td",{}, [
-               e("input", {type:"date", id:"mv_s_"+vac.id, value:vac.start_date, class:"fi", style:"padding:2px;font-size:11px;margin-left:4px;width:105px"}),
-               e("input", {type:"date", id:"mv_e_"+vac.id, value:vac.end_date, class:"fi", style:"padding:2px;font-size:11px;width:105px"})
-            ]),
-            e("td",{},[
-               e("select", {id:"mv_st_"+vac.id, class:"fi", style:"padding:2px;font-size:11px"}, [
-                  e("option",{value:"approved", selected:vac.status==="approved"?"selected":null}, "מאושרת"),
-                  e("option",{value:"rejected", selected:vac.status==="rejected"?"selected":null}, "נדחתה"),
-                  e("option",{value:"pending", selected:vac.status==="pending"?"selected":null}, "ממתינה")
-               ])
-            ]),
-            e("td",{},[
-               btn("btn-sm btn-sm-green", "שמור", () => {
-                  const ns = $("mv_s_"+vac.id).value;
-                  const ne = $("mv_e_"+vac.id).value;
-                  const nst = $("mv_st_"+vac.id).value;
-                  if(ns&&ne&&ns<=ne) editVacation(vac.id, ns, ne, nst);
-                  else toast("תאריכים לא תקינים","err");
-               },{style:"margin-left:4px"}),
-               btn("btn-sm btn-sm-gray", "ביטול", () => { S.editingVac = null; render(); })
-            ])
-          ]));
-        } else {
-          tbody.appendChild(e("tr",[
-            e("td",{style:"font-weight:600; white-space:nowrap"},`${icon} ${emp?.name || "עובד"}`),
-            e("td",{style:"color:#94A3B8; font-size:11px; white-space:nowrap"},`${vac.start_date || ""} — ${vac.end_date || ""}`),
-            e("td",{},[e("span",{class:"status-badge status-"+stClass},label)]),
-            e("td",{},[
-               btn("btn-sm btn-sm-blue", "✏️", () => { S.editingVac = vac.id; render(); }, {style:"margin-left:4px;font-size:10px"}),
-               btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(vac.id), {style:"font-size:10px"})
-            ])
-          ]));
-        }
-      });
-      tbl.appendChild(tbody); card.appendChild(tbl); wrap.appendChild(card);
-    }
-
-    if (S.vacations.length===0) {
-      wrap.appendChild(div("card",[e("div",{style:"text-align:center;padding:40px;color:#64748B"},["אין בקשות חופשה או מילואים עדיין"])]));
-    }
-  } catch (error) {
-    // במקרה של שגיאה, הצג אותה על המסך במקום להראות מסך לבן!
-    wrap.appendChild(e("div", {class: "error-state"}, [
-      e("h3", {style:"margin-bottom: 10px"}, "שגיאה בטעינת חופשות"),
-      e("p", {}, error.message)
+    form.appendChild(div("form-col",[e("label",{class:"form-label"},"סיבה"),e("input",{class:"fi",placeholder:"אופציונלי",value:S.newVac.reason,oninput:ev=>{S.newVac.reason=ev.target.value}})],{style:"margin-bottom:12px"}));
+    form.appendChild(div("form-actions",[
+      btn("btn-add","שלח",async(ev)=>{ ev.target.disabled=true; await addVacation(); },{style:"flex:1"}),
+      btn("btn-sm btn-sm-gray","ביטול",()=>{S.showAddVac=false;render();})
     ]));
-    console.error("שגיאה ברינדור חופשות:", error);
+    wrap.appendChild(form);
   }
 
+  const pending = S.vacations.filter(v => v.status === "pending" || !v.status);
+  const rest = S.vacations.filter(v => v.status === "approved" || v.status === "rejected");
+
+  if (pending.length > 0) {
+    const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#F59E0B;margin-bottom:12px"},`⏳ ממתינות לאישור (${pending.length})`)]);
+    pending.forEach(vac => {
+      const emp = getEmp(vac.employee_id);
+      const icon = vac.type === 'reserve' ? '🎖️' : '🌴';
+      card.appendChild(e("div",{style:"display:flex;align-items:center;gap:10px;background:#0F172A;border-radius:10px;padding:10px 14px;margin-bottom:6px"},[
+        e("div",{style:"flex:1"},[
+          e("div",{style:"font-weight:700;font-size:13px"},`${icon} ${emp?.name || "עובד"}`),
+          e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},`${vac.start_date || ""} — ${vac.end_date || ""}`),
+          vac.reason ? e("div",{style:"font-size:11px;color:#475569;margin-top:2px"},vac.reason) : null
+        ]),
+        btn("btn-sm btn-sm-green","אשר",()=>updateVacStatus(vac.id,"approved")),
+        btn("btn-sm btn-sm-red","דחה",()=>updateVacStatus(vac.id,"rejected"))
+      ]));
+    });
+    wrap.appendChild(card);
+  }
+
+  if (rest.length > 0) {
+    const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:12px"},`היסטוריה (${rest.length})`)]);
+    
+    // הפיכת הטבלה לכרטיסיות (עיצוב מובייל בטוח 100%)
+    rest.sort((a,b)=>String(b.start_date||"").localeCompare(String(a.start_date||""))).slice(0,30).forEach(vac => {
+      const emp = getEmp(vac.employee_id);
+      const icon = vac.type === 'reserve' ? '🎖️' : '🌴';
+      const isApp = vac.status === "approved";
+      const stClass = isApp ? "approved" : "rejected";
+      const label = isApp ? "אושרה ✓" : "נדחתה ✗";
+      
+      if (S.editingVac === vac.id) {
+        card.appendChild(e("div",{style:"background:#0F172A;border-radius:10px;padding:12px;margin-bottom:8px;border:1px solid #334155"},[
+          e("div",{style:"font-weight:700;font-size:13px;margin-bottom:8px"},`${icon} עריכה: ${emp?.name || "עובד"}`),
+          e("div",{style:"display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap"},[
+             e("input", {type:"date", id:"mv_s_"+vac.id, value:vac.start_date, class:"fi", style:"padding:6px;font-size:12px;width:120px"}),
+             e("span",{style:"color:#94A3B8;font-size:12px"},"עד"),
+             e("input", {type:"date", id:"mv_e_"+vac.id, value:vac.end_date, class:"fi", style:"padding:6px;font-size:12px;width:120px"})
+          ]),
+          e("div",{style:"margin-bottom:10px"},[
+             e("select", {id:"mv_st_"+vac.id, class:"fi", style:"padding:6px;font-size:12px;width:120px"}, [
+                e("option",{value:"approved", selected:vac.status==="approved"?"selected":null}, "מאושרת"),
+                e("option",{value:"rejected", selected:vac.status==="rejected"?"selected":null}, "נדחתה"),
+                e("option",{value:"pending", selected:vac.status==="pending"?"selected":null}, "ממתינה")
+             ])
+          ]),
+          e("div",{style:"display:flex;gap:6px"},[
+             btn("btn-sm btn-sm-green", "שמור שינויים", () => {
+                const ns = $("mv_s_"+vac.id).value;
+                const ne = $("mv_e_"+vac.id).value;
+                const nst = $("mv_st_"+vac.id).value;
+                if(ns&&ne&&ns<=ne) editVacation(vac.id, ns, ne, nst);
+                else toast("תאריכים לא תקינים","err");
+             }),
+             btn("btn-sm btn-sm-gray", "ביטול", () => { S.editingVac = null; render(); })
+          ])
+        ]));
+      } else {
+        card.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;background:#0F172A;border-radius:10px;padding:12px;margin-bottom:8px;border:1px solid #1E293B"},[
+          e("div",{style:"flex:1"},[
+            e("div",{style:"font-weight:700;font-size:13px;margin-bottom:2px"},`${icon} ${emp?.name || "עובד"}`),
+            e("div",{style:"color:#94A3B8; font-size:11px"},`${vac.start_date || ""} — ${vac.end_date || ""}`),
+            vac.reason ? e("div",{style:"color:#475569; font-size:11px;margin-top:2px"},vac.reason) : null
+          ]),
+          e("div",{style:"display:flex;flex-direction:column;align-items:flex-end;gap:6px"},[
+             e("span",{class:"status-badge status-"+stClass},label),
+             e("div",{style:"display:flex;gap:4px"},[
+               btn("btn-sm btn-sm-blue", "✏️", () => { S.editingVac = vac.id; render(); }, {style:"padding:4px 6px;font-size:12px"}),
+               btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(vac.id), {style:"padding:4px 6px;font-size:12px"})
+             ])
+          ])
+        ]));
+      }
+    });
+    wrap.appendChild(card);
+  }
+
+  if (S.vacations.length===0) {
+    wrap.appendChild(div("card",[e("div",{style:"text-align:center;padding:40px;color:#64748B"},["אין בקשות חופשה או מילואים עדיין"])]));
+  }
   return wrap;
 }
 // ── SWAPS ──
@@ -2643,10 +2615,9 @@ function viewEmpVacations() {
     form.appendChild(div("form-col",[e("label",{class:"form-label"},"סיבה"),e("input",{class:"fi",placeholder:"אופציונלי",value:S.newVac.reason,oninput:ev=>{S.newVac.reason=ev.target.value}})],{style:"margin-bottom:12px"}));
     form.appendChild(div("form-actions",[
       btn("btn-add","שלח בקשה",async(ev)=>{ 
-        ev.target.disabled = true; // מונע כפילויות שלחיצה מהירה
+        ev.target.disabled = true;
         S.newVac.employeeId = S.user.id; 
         await addVacation(); 
-        S.showAddVac = false; 
       },{style:"flex:1"}),
       btn("btn-sm btn-sm-gray","ביטול",()=>{S.showAddVac=false;render();})
     ]));
@@ -2659,37 +2630,38 @@ function viewEmpVacations() {
   if (myVacs.length === 0) {
     myCard.appendChild(e("div",{style:"text-align:center;padding:24px;color:#64748B;font-size:13px"},"אין בקשות חופשה עדיין"));
   } else {
-    // התיקון לקריסה! המיון בטוח.
     myVacs.sort((a,b)=>String(b.start_date||"").localeCompare(String(a.start_date||""))).forEach(vac=>{
       const icon = vac.type === 'reserve' ? '🎖️' : '🌴';
       const st = vac.status==="approved"?"approved":vac.status==="rejected"?"rejected":"pending";
       const label = vac.status==="approved"?"אושרה ✓":vac.status==="rejected"?"נדחתה ✗":"ממתין לאישור";
       
       if (S.editingVac === vac.id) {
-         myCard.appendChild(e("div",{style:"display:flex;flex-wrap:wrap;gap:8px;padding:10px 0;border-bottom:1px solid #0F172A"},[
-           e("div",{style:"display:flex;gap:6px;align-items:center"},[
-             e("input", {type:"date", id:"mev_s_"+vac.id, value:vac.start_date, class:"fi", style:"padding:4px;font-size:12px;width:110px"}),
+         myCard.appendChild(e("div",{style:"display:flex;flex-wrap:wrap;gap:8px;padding:12px;background:#0F172A;border-radius:10px;margin-bottom:8px;border:1px solid #334155"},[
+           e("div",{style:"display:flex;gap:6px;align-items:center;width:100%"},[
+             e("input", {type:"date", id:"mev_s_"+vac.id, value:vac.start_date, class:"fi", style:"padding:6px;font-size:12px;flex:1"}),
              e("span",{style:"color:#94A3B8"},"עד"),
-             e("input", {type:"date", id:"mev_e_"+vac.id, value:vac.end_date, class:"fi", style:"padding:4px;font-size:12px;width:110px"})
+             e("input", {type:"date", id:"mev_e_"+vac.id, value:vac.end_date, class:"fi", style:"padding:6px;font-size:12px;flex:1"})
            ]),
-           e("div",{style:"display:flex;gap:4px"},[
-             btn("btn-sm btn-sm-green", "שמור ושלח", () => {
+           e("div",{style:"display:flex;gap:4px;width:100%;margin-top:6px"},[
+             btn("btn-sm btn-sm-green", "שמור ושלח מחדש", () => {
                 const ns = $("mev_s_"+vac.id).value; const ne = $("mev_e_"+vac.id).value;
                 if(ns&&ne&&ns<=ne) editVacation(vac.id, ns, ne, "pending"); else toast("תאריכים לא תקינים","err");
-             }),
+             },{style:"flex:1"}),
              btn("btn-sm btn-sm-gray", "ביטול", () => { S.editingVac = null; render(); })
            ])
          ]));
       } else {
-         myCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A"},[
-           e("div",{},[
+         myCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;background:#0F172A;border-radius:10px;padding:12px;margin-bottom:8px;border:1px solid #1E293B"},[
+           e("div",{style:"flex:1"},[
              e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},`${icon} ${(vac.start_date||"")} — ${(vac.end_date||"")}`),
              vac.reason?e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},vac.reason):null
            ]),
-           e("div",{style:"display:flex;align-items:center;gap:6px"},[
+           e("div",{style:"display:flex;flex-direction:column;align-items:flex-end;gap:6px"},[
               e("span",{class:"status-badge status-"+st},label),
-              btn("btn-sm btn-sm-blue", "✏️", () => { S.editingVac = vac.id; render(); }, {style:"font-size:10px;padding:4px 6px"}),
-              btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(vac.id), {style:"font-size:10px;padding:4px 6px"})
+              e("div",{style:"display:flex;gap:4px"},[
+                btn("btn-sm btn-sm-blue", "✏️", () => { S.editingVac = vac.id; render(); }, {style:"font-size:12px;padding:4px 6px"}),
+                btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(vac.id), {style:"font-size:12px;padding:4px 6px"})
+              ])
            ])
          ]));
       }
