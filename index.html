@@ -2715,13 +2715,23 @@ function setupRealtime() {
 }
 
 async function startApp() {
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session?.user) { S.view = "login"; render(); return; }
-    await loadAll(session.user);
-    setupRealtime();
+    try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session?.user) { 
+            S.view = "login"; 
+            render(); 
+            return; 
+        }
+        await loadAll(session.user);
+        setupRealtime();
+    } catch (err) {
+        console.error("App init error:", err);
+    }
 }
 
+// הרצת האפליקציה
 startApp();
+
 </script>
 </body>
 </html>
