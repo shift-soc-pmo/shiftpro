@@ -1056,56 +1056,59 @@ function loginField(lbl, name, type, ph, req=false) {
 
 // ── HEADER ──
 function viewHeader() {
-  const pendingVacs = S.vacations.filter(v=>v.status==="pending").length;
-  const pendingSwaps = S.swapRequests.filter(s=>s.status==="pending_manager").length;
+  const pendingVacs = S.vacations.filter(v=>v.status==="pending").length;
+  const pendingSwaps = S.swapRequests.filter(s=>s.status==="pending_manager").length;
 
-  const empOnly = S.profile?.role === "employee";
-  const tabs = empOnly ? [
-    {id:"empview",  icon:"📋", label:"המשמרות שלי"},
-    {id:"schedule", icon:"📅", label:"סידור"},
-    {id:"calendar", icon:"🗓️", label:"חודש"},
-    {id:"vacations",icon:"🌴", label:"חופשות"},
-    {id:"swaps",    icon:"🔄", label:"חילופים"},
-  ] : [
-    {id:"home",     icon:"🏠", label:"בית"},
-    {id:"schedule", icon:"📅", label:"סידור"},
-    {id:"calendar", icon:"🗓️", label:"חודש"},
-    {id:"employees",icon:"👥", label:"עובדים"},
-    {id:"vacations",icon:"🌴", label:"חופשות", badge:pendingVacs},
-    {id:"swaps",    icon:"🔄", label:"חילופים", badge:pendingSwaps, badgeClass:"badge-purple"},
-    {id:"stats",    icon:"📊", label:"נתונים"},
-    {id:"empview",  icon:"👤", label:"עובד"},
-    {id:"settings", icon:"⚙️", label:"הגדרות"},
-  ];
+  const empOnly = S.profile?.role === "employee";
+  const tabs = empOnly ? [
+    {id:"empview",  icon:"📋", label:"המשמרות שלי"},
+    {id:"schedule", icon:"📅", label:"סידור"},
+    {id:"calendar", icon:"🗓️", label:"חודש"},
+    {id:"vacations",icon:"🌴", label:"חופשות ומילואים"},
+    {id:"swaps",    icon:"🔄", label:"חילופים"},
+  ] : [
+    {id:"home",     icon:"🏠", label:"בית"},
+    {id:"schedule", icon:"📅", label:"סידור"},
+    {id:"calendar", icon:"🗓️", label:"חודש"},
+    {id:"employees",icon:"👥", label:"עובדים"},
+    {id:"vacations",icon:"🌴", label:"העדרויות", badge:pendingVacs},
+    {id:"swaps",    icon:"🔄", label:"חילופים", badge:pendingSwaps, badgeClass:"badge-purple"},
+    {id:"stats",    icon:"📊", label:"נתונים"},
+    {id:"empview",  icon:"👤", label:"עובד"},
+    {id:"settings", icon:"⚙️", label:"הגדרות"},
+  ];
 
-  return e("header",{class:"header"},[
-    div("header-inner",[
-      div("",[
-        div("logo-icon",["📅"]),
-        e("div",{style:"margin-right:10px"},[
-          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"Shift SOC PMO"),
-          e("div",{style:"font-size:11px;color:#64748B"},S.business?.name||"")
-        ])
-      ].map((x,i)=>i===0?x:x), {style:"display:flex;align-items:center;gap:10px"}),
-      div("nav", tabs.map(t =>
-        e("button",{
-          class:"nav-btn"+(S.view===t.id?" active":""),
-          onclick:()=>{S.view=t.id;S.selectedCell=null;render();}
-        },[
-          t.badge>0 ? e("span",{class:"badge "+(t.badgeClass||"")},String(t.badge)) : null,
-          e("span",{style:"font-size:15px;line-height:1"},t.icon),
-          e("span",{},t.label)
-        ])
-      )),
-      div("user-area",[
-        e("div",{},[
-          e("div",{class:"user-name"},S.profile?.name||""),
-          e("div",{class:"user-role-label"},S.profile?.role==="admin"?"מנהל ראשי":S.profile?.role==="manager"?"מנהל משמרת":"עובד")
-        ]),
-        btn("btn-logout","יציאה",handleLogout)
-      ])
-    ])
-  ]);
+  return e("header",{class:"header"},[
+    div("header-inner",[
+      div("",[
+        div("logo-icon",["📅"]),
+        e("div",{style:"margin-right:10px"},[
+          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"Shift SOC PMO"),
+          e("div",{style:"font-size:11px;color:#64748B"},S.business?.name||"")
+        ])
+      ].map((x,i)=>i===0?x:x), {style:"display:flex;align-items:center;gap:10px"}),
+      
+      // תפריט ניווט לשולחן עבודה בלבד
+      div("nav", tabs.map(t =>
+        e("button",{
+          class:"nav-btn"+(S.view===t.id?" active":""),
+          onclick:()=>{S.view=t.id;S.selectedCell=null;render();}
+        },[
+          t.badge>0 ? e("span",{class:"badge "+(t.badgeClass||"")},String(t.badge)) : null,
+          e("span",{style:"font-size:15px;line-height:1"},t.icon),
+          e("span",{},t.label)
+        ])
+      )),
+      
+      div("user-area",[
+        e("div",{},[
+          e("div",{class:"user-name"},S.profile?.name||""),
+          e("div",{class:"user-role-label"},S.profile?.role==="admin"?"מנהל ראשי":S.profile?.role==="manager"?"מנהל משמרת":"עובד")
+        ]),
+        btn("btn-logout","יציאה",handleLogout)
+      ])
+    ])
+  ]);
 }
 
 // ── HOME ──
