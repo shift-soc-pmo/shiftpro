@@ -765,35 +765,23 @@ async function updateVacStatus(id, status) {
 
 async function updateSwapStatus(id, status) {
   console.log("--- תחילת תהליך עדכון חילוף ---");
-  console.log("ID בקשה:", id, "| סטטוס חדש:", status);
   
   try {
-    // 1. עדכון סטטוס הבקשה בטבלת swap_requests
+    // 1. עדכון סטטוס הבקשה עצמה
     const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
     if (swapErr) throw swapErr;
 
-    // מציאת נתוני הבקשה בסטייט המקומי
+    // מציאת נתוני הבקשה בזיכרון המקומי
     const sw = S.swapRequests.find(s => s.id === id);
-    if (!sw) throw new Error("הבקשה לא נמצאה במערכת");
+    if (!sw) throw new Error("הבקשה לא נמצאה בזיכרון המקומי");
 
-    // 2. עדכון לוח המשמרות (Assignments) רק אם המנהל אישר
+    // 2. אם אושר - מבצעים את החילוף בבסיס הנתונים
     if (status === "approved") {
-      console.log("הבקשה אושרה! מתחיל עדכון משמרות ב-DB...");
+      console.log("הבקשה אושרה, מעדכן שיבוצים...");
 
       if (sw.type === 'swap') {
-        // --- חילוף בין שני אנשים ---
-        
-        // משמרת א': מעבירים למבקש את המשמרת של היעד
+        // חילוף בין שניים: מחליפים את העובדים בשתי המשמרות
         const res1 = await sb.from("assignments")
-          .update({ employee_id: sw.requester_id })
-          .match({ 
-            date: sw.target_date, 
-            shift: sw.target_shift,
-            schedule_id: sw.schedule_id 
-          }).select();
-
-        // משמרת ב': מעבירים ליעד את המשמרת של המבקש
-        const res2 = await sb.from("assignments")
           .update({ employee_id: sw.target_id })
           .match({ 
             date: sw.requester_date, 
@@ -801,13 +789,19 @@ async function updateSwapStatus(id, status) {
             schedule_id: sw.schedule_id 
           }).select();
 
-        console.log("שורות שעודכנו (משמרת יעד):", res1.data?.length || 0);
-        console.log("שורות שעודכנו (משמרת מבקש):", res2.data?.length || 0);
+        const res2 = await sb.from("assignments")
+          .update({ employee_id: sw.requester_id })
+          .match({ 
+            date: sw.target_date, 
+            shift: sw.target_shift,
+            schedule_id: sw.schedule_id 
+          }).select();
+
+        console.log("עודכנה משמרת מבקש:", res1.data?.length || 0);
+        console.log("עודכנה משמרת יעד:", res2.data?.length || 0);
 
       } else {
-        // --- לקיחה או הצטרפות (Take/Join) ---
-        
-        // פשוט מעדכנים את מי שעל המשמרת למבקש החדש
+        // לקיחה/הצטרפות: מעדכנים רק את המשמרת של היעד
         const res3 = await sb.from("assignments")
           .update({ employee_id: sw.requester_id })
           .match({ 
@@ -816,15 +810,16 @@ async function updateSwapStatus(id, status) {
             schedule_id: sw.schedule_id 
           }).select();
 
-        console.log("שורות שעודכנו (לקיחה):", res3.data?.length || 0);
+        console.log("שורות שעודכנו בלקיחה:", res3.data?.length || 0);
       }
     }
 
-    // 3. טעינת נתונים מחדש כדי שהשינוי יופיע על המסך
-    console.log("מרענן נתונים מהשרת...");
-    await Promise.all([loadSwapRequests(), loadSchedule()]);
+    // 3. ריענון הנתונים בלוח (חשוב מאוד!)
+    console.log("מרענן לוח משמרות...");
+    await loadSchedule();      // טעינת השיבוצים המעודכנים מה-DB
+    await loadSwapRequests();  // טעינת הבקשות המעודכנות
     
-    // 4. שליחת מייל עדכון לעובד
+    // 4. שליחת מייל
     const req = getEmp(sw.requester_id);
     if (req?.email) {
       const sh = SHIFT_BY_ID[sw.target_shift] || { label: sw.target_shift };
@@ -836,11 +831,13 @@ async function updateSwapStatus(id, status) {
     }
 
     toast(status === "approved" ? "החילוף בוצע והלוח עודכן ✓" : "הבקשה נדחתה");
-    render(); // ריענון התצוגה
+    
+    // הפעלה מחדש של ה-Render כדי שהשמות יתחלפו מול העיניים
+    if (typeof render === "function") render();
 
   } catch (err) {
-    console.error("שגיאה קריטית ב-updateSwapStatus:", err);
-    toast("שגיאה בביצוע הפעולה - בדוק קונסול", "error");
+    console.error("שגיאה בפונקציית העדכון:", err);
+    toast("תקלה בעדכון הנתונים", "error");
   }
 }
 // ══════════════════════════════════════════════════════
