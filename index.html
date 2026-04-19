@@ -2573,139 +2573,144 @@ function viewEmpVacations() {
 // ══════════════════════════════════════════════════════
 // CALENDAR VIEW
 // ══════════════════════════════════════════════════════
+// ── CALENDAR VIEW ──
 function viewCalendar() {
-  const wrap = e("div");
-  const now = new Date();
-  const year = now.getFullYear() + Math.floor((now.getMonth() + S.monthOffset) / 12);
-  const month = ((now.getMonth() + S.monthOffset) % 12 + 12) % 12;
-  const monthName = new Date(year, month, 1).toLocaleDateString("he-IL", {month:"long", year:"numeric"});
+  const wrap = e("div");
+  
+  // התיקון ל-Invalid Date: מוודאים שהחודש מאותחל ל-0 מיד כשהמסך נפתח
+  if (S.monthOffset === undefined) S.monthOffset = 0;
+  
+  const now = new Date();
+  const year = now.getFullYear() + Math.floor((now.getMonth() + S.monthOffset) / 12);
+  const month = ((now.getMonth() + S.monthOffset) % 12 + 12) % 12;
+  const monthName = new Date(year, month, 1).toLocaleDateString("he-IL", {month:"long", year:"numeric"});
 
-  // Header
-  wrap.appendChild(div("section-header",[
-    div("page-title",["🗓️ "+monthName]),
-    e("div",{style:"display:flex;gap:8px"},[
-      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset--;render();}},"←"),
-      e("button",{class:"btn-sm btn-sm-blue",onclick:()=>{S.monthOffset=0;render();}},"החודש"),
-      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset++;render();}},"→")
-    ])
-  ]));
+  // Header
+  wrap.appendChild(div("section-header",[
+    div("page-title",["🗓️ "+monthName]),
+    e("div",{style:"display:flex;gap:8px"},[
+      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset++;render();}},"→"),
+      e("button",{class:"btn-sm btn-sm-blue",onclick:()=>{S.monthOffset=0;render();}},"החודש"),
+      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset--;render();}},"←")
+    ])
+  ]));
 
-  // Employee filter
-  const filterWrap = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"});
-  filterWrap.appendChild(e("button",{
-    style:`padding:5px 12px;border-radius:8px;border:1px solid ${S.calFilterEmp===null?"#3B82F6":"#334155"};background:${S.calFilterEmp===null?"#3B82F622":"#1E293B"};color:${S.calFilterEmp===null?"#60A5FA":"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
-    onclick:()=>{S.calFilterEmp=null;render();}
-  },"כולם"));
-  S.employees.forEach((emp,idx)=>{
-    const col=ec(idx);
-    const sel=S.calFilterEmp===emp.id;
-    filterWrap.appendChild(e("button",{
-      style:`padding:5px 12px;border-radius:8px;border:1px solid ${sel?col+"aa":col+"44"};background:${sel?col+"33":"#1E293B"};color:${sel?col:"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
-      onclick:()=>{S.calFilterEmp=sel?null:emp.id;render();}
-    },emp.name.split(" ")[0]));
-  });
-  wrap.appendChild(filterWrap);
+  // Employee filter
+  const filterWrap = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"});
+  filterWrap.appendChild(e("button",{
+    style:`padding:5px 12px;border-radius:8px;border:1px solid ${S.calFilterEmp===null?"#3B82F6":"#334155"};background:${S.calFilterEmp===null?"#3B82F622":"#1E293B"};color:${S.calFilterEmp===null?"#60A5FA":"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
+    onclick:()=>{S.calFilterEmp=null;render();}
+  },"כולם"));
+  S.employees.forEach((emp,idx)=>{
+    const col=ec(idx);
+    const sel=S.calFilterEmp===emp.id;
+    filterWrap.appendChild(e("button",{
+      style:`padding:5px 12px;border-radius:8px;border:1px solid ${sel?col+"aa":col+"44"};background:${sel?col+"33":"#1E293B"};color:${sel?col:"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
+      onclick:()=>{S.calFilterEmp=sel?null:emp.id;render();}
+    },emp.name.split(" ")[0]));
+  });
+  wrap.appendChild(filterWrap);
 
-  // Build calendar grid
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month+1, 0);
-  const startDow = firstDay.getDay(); // 0=Sun
-  const totalDays = lastDay.getDate();
+  // Build calendar grid
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month+1, 0);
+  const startDow = firstDay.getDay(); // 0=Sun
+  const totalDays = lastDay.getDate();
 
-  // Collect all schedules for this month
-  const allDates = [];
-  for (let d=1; d<=totalDays; d++) {
-    const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    allDates.push(dateStr);
-  }
+  // Collect all schedules for this month
+  const allDates = [];
+  for (let d=1; d<=totalDays; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    allDates.push(dateStr);
+  }
 
-  const calCard = div("card");
-  calCard.style.padding = "12px";
+  const calCard = div("card");
+  calCard.style.padding = "12px";
 
-  // Day headers
-  const hdrRow = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px"});
-  DAYS.forEach(d=>hdrRow.appendChild(e("div",{style:"text-align:center;font-size:11px;font-weight:700;color:#64748B;padding:4px 0"},d)));
-  calCard.appendChild(hdrRow);
+  // Day headers
+  const hdrRow = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px"});
+  DAYS.forEach(d=>hdrRow.appendChild(e("div",{style:"text-align:center;font-size:11px;font-weight:700;color:#64748B;padding:4px 0"},d)));
+  calCard.appendChild(hdrRow);
 
-  // Grid
-  const grid = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px"});
+  // Grid
+  const grid = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px"});
 
-  // Empty cells before first day
-  for (let i=0; i<startDow; i++) {
-    grid.appendChild(e("div",{style:"min-height:80px"}));
-  }
+  // Empty cells before first day
+  for (let i=0; i<startDow; i++) {
+    grid.appendChild(e("div",{style:"min-height:80px"}));
+  }
 
-  allDates.forEach(dateStr => {
-    const d = new Date(dateStr+"T00:00:00");
-    const isToday = dateStr === new Date().toISOString().split("T")[0];
-    const isWeekend = d.getDay() === 5 || d.getDay() === 6;
+  allDates.forEach(dateStr => {
+    const d = new Date(dateStr+"T00:00:00");
+    const isToday = dateStr === new Date().toISOString().split("T")[0];
+    const isWeekend = d.getDay() === 5 || d.getDay() === 6;
 
-    // Get vacations for this day
-    const dayVacs = S.vacations.filter(v=>v.status==="approved"&&dateStr>=v.start_date&&dateStr<=v.end_date);
+    // Get vacations for this day
+    const dayVacs = S.vacations.filter(v=>v.status==="approved"&&dateStr>=v.start_date&&dateStr<=v.end_date);
 
-    // Get assignments
-    const dayAssignments = {};
-    SHIFTS.forEach(sh=>{
-      const empIds = (S.schedule[dateStr]?.[sh.id]||[]);
-      const filtered = S.calFilterEmp ? empIds.filter(id=>id===S.calFilterEmp) : empIds;
-      if (filtered.length>0) dayAssignments[sh.id]=filtered;
-    });
+    // Get assignments
+    const dayAssignments = {};
+    SHIFTS.forEach(sh=>{
+      const empIds = (S.schedule[dateStr]?.[sh.id]||[]);
+      const filtered = S.calFilterEmp ? empIds.filter(id=>id===S.calFilterEmp) : empIds;
+      if (filtered.length>0) dayAssignments[sh.id]=filtered;
+    });
 
-    const cell = e("div",{
-      style:`min-height:80px;background:${isToday?"#1E3A5F":isWeekend?"#1A2234":"#1E293B"};border-radius:8px;padding:4px;border:1px solid ${isToday?"#3B82F6":"#334155"};cursor:pointer`,
-      onclick:()=>{
-        // Navigate to week containing this date
-        const d2=new Date(dateStr+"T00:00:00");
-        const today2=new Date();
-        today2.setHours(0,0,0,0);
-        const diffDays=Math.round((d2-today2)/(1000*60*60*24));
-        const diffWeeks=Math.floor(diffDays/7);
-        S.weekOffset=diffWeeks;
-        S.view="schedule";
-        loadSchedule().then(()=>render());
-      }
-    });
+    const cell = e("div",{
+      style:`min-height:80px;background:${isToday?"#1E3A5F":isWeekend?"#1A2234":"#1E293B"};border-radius:8px;padding:4px;border:1px solid ${isToday?"#3B82F6":"#334155"};cursor:pointer`,
+      onclick:()=>{
+        // Navigate to week containing this date
+        const d2=new Date(dateStr+"T00:00:00");
+        const today2=new Date();
+        today2.setHours(0,0,0,0);
+        const diffDays=Math.round((d2-today2)/(1000*60*60*24));
+        const diffWeeks=Math.floor(diffDays/7);
+        S.weekOffset=diffWeeks;
+        S.view="schedule";
+        loadSchedule().then(()=>render());
+      }
+    });
 
-    // Date number
-    cell.appendChild(e("div",{style:`font-size:13px;font-weight:${isToday?"900":"600"};color:${isToday?"#60A5FA":isWeekend?"#94A3B8":"#E2E8F0"};margin-bottom:3px`},String(d.getDate())));
+    // Date number
+    cell.appendChild(e("div",{style:`font-size:13px;font-weight:${isToday?"900":"600"};color:${isToday?"#60A5FA":isWeekend?"#94A3B8":"#E2E8F0"};margin-bottom:3px`},String(d.getDate())));
 
-    // Shift indicators
-    Object.entries(dayAssignments).forEach(([shId,empIds])=>{
-      const sh=SHIFT_BY_ID[shId];
-      const row=e("div",{style:`display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px`});
-      empIds.slice(0,3).forEach(empId=>{
-        const empI=empIdx(empId);
-        const col=ec(empI);
-        const emp=getEmp(empId);
-        row.appendChild(e("div",{style:`background:${col}22;border:1px solid ${col}44;border-radius:4px;padding:1px 4px;font-size:9px;font-weight:700;color:${col}`},emp?.name.split(" ")[0]||"?"));
-      });
-      if(empIds.length>3) row.appendChild(e("div",{style:"font-size:9px;color:#64748B"},`+${empIds.length-3}`));
-      cell.appendChild(row);
-    });
+    // Shift indicators
+    Object.entries(dayAssignments).forEach(([shId,empIds])=>{
+      const sh=SHIFT_BY_ID[shId];
+      const row=e("div",{style:`display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px`});
+      empIds.slice(0,3).forEach(empId=>{
+        const empI=empIdx(empId);
+        const col=ec(empI);
+        const emp=getEmp(empId);
+        row.appendChild(e("div",{style:`background:${col}22;border:1px solid ${col}44;border-radius:4px;padding:1px 4px;font-size:9px;font-weight:700;color:${col}`},emp?.name.split(" ")[0]||"?"));
+      });
+      if(empIds.length>3) row.appendChild(e("div",{style:"font-size:9px;color:#64748B"},`+${empIds.length-3}`));
+      cell.appendChild(row);
+    });
 
-    // Vacation indicators
-    dayVacs.slice(0,2).forEach(v=>{
-      const emp=getEmp(v.employee_id);
-      if(!emp) return;
-      cell.appendChild(e("div",{style:"font-size:9px;color:#F59E0B;background:#F59E0B11;border-radius:4px;padding:1px 4px;margin-top:1px"},"🌴 "+emp.name.split(" ")[0]));
-    });
+    // Vacation indicators
+    dayVacs.slice(0,2).forEach(v=>{
+      const emp=getEmp(v.employee_id);
+      if(!emp) return;
+      cell.appendChild(e("div",{style:"font-size:9px;color:#F59E0B;background:#F59E0B11;border-radius:4px;padding:1px 4px;margin-top:1px"},"🌴 "+emp.name.split(" ")[0]));
+    });
 
-    grid.appendChild(cell);
-  });
+    grid.appendChild(cell);
+  });
 
-  calCard.appendChild(grid);
-  wrap.appendChild(calCard);
+  calCard.appendChild(grid);
+  wrap.appendChild(calCard);
 
-  // Legend
-  const legend = div("",[ 
-    e("div",{style:"display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:#64748B"},[
-      e("span",{},"לחץ על יום לעבור לסידור השבועי"),
-      e("span",{style:"color:#F59E0B"},"🌴 = חופשה מאושרת"),
-      ...SHIFTS.map(sh=>e("span",{style:"color:"+sh.color},`● ${sh.label}`))
-    ])
-  ]);
-  wrap.appendChild(legend);
-  return wrap;
+  // Legend
+  const legend = div("",[ 
+    e("div",{style:"display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:#64748B"},[
+      e("span",{},"לחץ על יום לעבור לסידור השבועי"),
+      e("span",{style:"color:#F59E0B"},"🌴 = חופשה מאושרת"),
+      ...SHIFTS.map(sh=>e("span",{style:"color:"+sh.color},`● ${sh.label}`))
+    ])
+  ]);
+  wrap.appendChild(legend);
+  return wrap;
 }
 
 // ══════════════════════════════════════════════════════
