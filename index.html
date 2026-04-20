@@ -782,19 +782,22 @@ async function saveConstraints(empId, data) {
 // VACATION ACTIONS
 // ══════════════════════════════════════════════════════
 async function addVacation() {
-  // 1. בדיקה שהנתונים קיימים ב-State
+  // 1. בדיקה שהנתונים קיימים בטיוטה
   if (!S.newVac.startDate || !S.newVac.endDate) {
     toast("נא למלא תאריכים", "err");
     return;
   }
+
+  // וידוא סוג (אם לא נבחר כלום, ברירת מחדל חופשה)
+  const typeToSend = S.newVac.type || "vacation";
 
   const payload = {
     employee_id: S.user.id,
     business_id: S.profile.business_id,
     start_date: S.newVac.startDate,
     end_date: S.newVac.endDate,
-    type: S.newVac.type || "vacation", // וודא שזה מקבל 'exam'
-    status: "pending"
+    type: typeToSend, 
+    status: "approved" // במערכת שלך מבחנים מאושרים אוטומטית או דורשים אישור? שיניתי ל-pending אם צריך אישור
   };
 
   console.log("שולח בקשה ל-Supabase:", payload);
@@ -802,13 +805,15 @@ async function addVacation() {
   const { data, error } = await sb.from("vacations").insert([payload]);
 
   if (error) {
-    console.error("שגיאת Supabase בשליחה:", error);
+    console.error("שגיאת Supabase:", error);
     toast("שגיאה: " + error.message, "err");
   } else {
-    console.log("הבקשה נשמרה בהצלחה!");
-    toast("בקשה נשלחה לאישור ✓");
+    toast("הבקשה נשלחה בהצלחה ✓");
     S.showAddVac = false;
-    await loadVacations(); // טעינה מחדש של הרשימה
+    S.newVac = {type: "vacation", startDate: "", endDate: ""}; // איפוס הטופס
+    
+    // 2. טעינה מחדש של הנתונים כדי שהמבחן יופיע מיד
+    await loadVacations(); 
     render();
   }
 }
@@ -2529,30 +2534,33 @@ function viewEmpVacations() {
   const my = S.vacations.filter(x => x.employee_id === S.user.id);
   const wrap = div("");
   
-  // שינוי השם בכותרת ועיצוב הכפתור
+  // 1. כותרת הטאב המעודכנת
   wrap.appendChild(div("page-title", ["🌴 חופשות, מילואים ומבחנים"]));
   
+  // כפתור פתיחת טופס
   wrap.appendChild(btn("btn-add", "+ בקשה חדשה", () => { 
     S.showAddVac = !S.showAddVac; 
-    if(S.showAddVac) S.newVac = { type: "vacation", startDate: "", endDate: "" };
+    if(S.showAddVac) S.newVac = { type: "vacation", startDate: "", endDate: "", reason: "" };
     render(); 
   }, { style: "width:100%; margin-bottom:15px; padding:15px; font-weight:800;" }));
 
+  // 2. טופס הגשת בקשה חדשה
   if (S.showAddVac) {
     const f = div("card", [
-      div("card-title", ["📝 הגשת בקשה"]),
+      div("card-title", ["📝 הגשת בקשה חדשה"]),
       
       e("label", { class: "form-label" }, "סוג הבקשה"),
       e("select", { 
         class: "fi", 
-        onchange: x => S.newVac.type = x.target.value 
+        style: "margin-bottom:15px;",
+        onchange: x => { S.newVac.type = x.target.value; } 
       }, [
         e("option", { value: "vacation" }, "חופשה 🌴"),
         e("option", { value: "reserve" }, "מילואים 🎖️"),
-        e("option", { value: "exam" }, "מבחן 📝") 
+        e("option", { value: "exam" }, "מבחן 📝") // האופציה החדשה
       ]),
 
-      div("form-row", {style: "margin-top:10px"}, [
+      div("form-row", [
         div("form-col", [
           e("label", { class: "form-label" }, "מתאריך"), 
           e("input", { type: "date", class: "fi", oninput: x => S.newVac.startDate = x.target.value })
@@ -2563,30 +2571,56 @@ function viewEmpVacations() {
         ])
       ]),
 
+      e("label", { class: "form-label", style: "margin-top:10px" }, "הערה (אופציונלי)"),
+      e("input", { 
+        class: "fi", 
+        placeholder: "למשל: מבחן בליניארית", 
+        oninput: x => S.newVac.reason = x.target.value 
+      }),
+
       btn("btn-primary", "שלח בקשה לאישור", async () => {
         if(!S.newVac.startDate || !S.newVac.endDate) return toast("נא למלא תאריכים", "err");
-        await addVacation(); // מוודא שזה שומר ל-DB
+        await addVacation(); // קורא לפונקציית השמירה שמעדכנת את ה-DB
         S.showAddVac = false;
         render();
-      }, { style: "width:100%; margin-top:15px;" })
-    ]);
+      }, { style: "width:100%; margin-top:15px; padding:12px;" })
+    ], { style: "border: 1px solid #3B82F6; background: #1E3A5F11;" });
+    
     wrap.appendChild(f);
   }
 
+  // 3. רשימת בקשות קודמות
   const list = div("");
+  if (my.length === 0) {
+    list.appendChild(e("div", { style: "text-align:center; color:#64748B; padding:20px;" }, "אין בקשות קודמות"));
+  }
+
   my.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).forEach(v => {
     const icons = { vacation: "🌴", reserve: "🎖️", exam: "📝" };
-    const names = { vacation: "חופשה", reserve: "מילואים", exam: "מבחן" };
+    const typeNames = { vacation: "חופשה", reserve: "מילואים", exam: "מבחן" };
+    
     const st = v.status === "approved" ? "approved" : v.status === "rejected" ? "rejected" : "pending";
+    const label = v.status === "approved" ? "אושרה ✓" : v.status === "rejected" ? "נדחתה ✗" : "ממתין לאישור";
 
     list.appendChild(div("card", [
       div("", [
-        e("div", { style: "font-weight:800;" }, `${icons[v.type]} ${names[v.type]}: ${v.start_date} — ${v.end_date}`),
-        e("div", { class: "status-badge status-" + st }, v.status === "approved" ? "אושרה" : v.status === "rejected" ? "נדחתה" : "ממתין")
-      ]),
-      btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(v.id))
-    ], { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:8px" }));
+        div("", [
+          e("div", { style: "font-weight:800; font-size:15px; color:#F1F5F9" }, [
+            e("span", {style:"margin-left:8px"}, icons[v.type] || "🌴"),
+            `${typeNames[v.type] || "חופשה"}: ${fmtDate(v.start_date)} — ${fmtDate(v.end_date)}`
+          ]),
+          v.reason ? e("div", { style: "font-size:12px; color:#94A3B8; margin-top:4px" }, "💬 " + v.reason) : null,
+          e("div", { class: "status-badge status-" + st, style: "margin-top:8px" }, label)
+        ], { style: "flex:1" }),
+        div("", [
+          btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(v.id))
+        ], { style: "display:flex; align-items:center" })
+      ], { style: "display:flex; justify-content:space-between; align-items:center" })
+    ], { 
+      style: `background:#0F172A; border:1px solid ${v.type === 'exam' ? '#10B98144' : '#1E293B'};` 
+    }));
   });
+
   wrap.appendChild(list);
   return wrap;
 }
