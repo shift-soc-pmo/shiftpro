@@ -1250,24 +1250,26 @@ function viewHome() {
 // ── SCHEDULE ──
 function viewSchedule() {
   let wd = getWeekDates(S.weekOffset);
-  // מוודאים שהימים תמיד מסודרים לפי התאריך (מראשון עד שבת)
+  // מיון הימים לפי תאריך (מראשון עד שבת)
   wd.sort((a, b) => new Date(a) - new Date(b));
   
   const weekStart = wd[0];
   const isPublished = S.publishedWeeks.has(weekStart);
   const wrap = e("div");
 
-  // כותרת וכפתורי ניהול
+  // --- כותרת וכפתורי ניהול ---
   const hdr = div("section-header", [
     e("div", {}, [
       div("page-title", ["📅 סידור שבועי"]),
       e("div", { style: "font-size:13px;color:#64748B;margin-top:2px" }, fmtDate(wd[0]) + " — " + fmtDate(wd[6])),
-      isPublished ? div("published-banner", ["📢 פורסם"]) : null
+      isPublished ? div("published-banner", ["📢 פורסם לעובדים"]) : null
     ]),
     e("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, [
       btn("btn-sm btn-sm-gray", "→", () => { S.weekOffset++; S.selectedCell = null; loadSchedule().then(() => render()); }),
       btn("btn-sm btn-sm-blue", "השבוע", () => { S.weekOffset = 0; S.selectedCell = null; loadSchedule().then(() => render()); }),
       btn("btn-sm btn-sm-gray", "←", () => { S.weekOffset--; S.selectedCell = null; loadSchedule().then(() => render()); }),
+      // כפתור חסימות למנהלים
+      isManager() ? btn("btn-sm btn-sm-red", "🚫 חסימות", () => { S.showBlocksModal = true; render(); }) : null,
       isManager() ? btn("btn-green", "⚡ שיבוץ אוטומטי", runSmartSchedule) : null,
       isManager() && !isPublished ? btn("btn-purple", "📢 פרסם", () => { S.showPublishModal = true; render(); }) : null
     ])
@@ -1278,7 +1280,7 @@ function viewSchedule() {
   const gridWrap = div("sched-wrap");
   const tbl = e("table", { class: "sched-table" });
   
-  // בניית שורת כותרות הימים
+  // --- בניית שורת כותרות הימים ---
   const thead = e("thead");
   const hrow = e("tr");
   hrow.appendChild(e("th", { style: "width: 110px;" }, "משמרת")); 
@@ -1299,9 +1301,18 @@ function viewSchedule() {
   // --- שורת העדרויות (חופשות/מילואים) - למנהלים בלבד ---
   if (isManager()) {
     const absenceRow = e("tr");
-    absenceRow.appendChild(e("td", { style: "color:#F59E0B; font-weight:800; font-size:12px; text-align:right; padding: 10px 15px; border-left: 2px solid #334155; background: rgba(245,158,11,0.05);" }, "🌴/🎖️ העדרויות"));
+    absenceRow.appendChild(e("td", { 
+      style: "color:#F59E0B; font-weight:800; font-size:12px; text-align:right; padding: 10px 15px; border-left: 2px solid #334155; background: rgba(245,158,11,0.05);" 
+    }, "🌴/🎖️ העדרויות"));
+    
     wd.forEach(date => {
-      const dayAbsences = S.vacations.filter(v => v.status === "approved" && date >= v.start_date && date <= v.end_date);
+      // סינון חופשות ומילואים מאושרים (לא כולל מבחנים בשורה זו)
+      const dayAbsences = S.vacations.filter(v => 
+        v.status === "approved" && 
+        v.type !== "exam" && 
+        date >= v.start_date && date <= v.end_date
+      );
+      
       const td = e("td", { style: "background: rgba(245, 158, 11, 0.05); border: 1px solid #33415522; padding: 4px; vertical-align: middle; text-align: center;" });
       
       dayAbsences.forEach(v => {
@@ -1310,7 +1321,9 @@ function viewSchedule() {
           const isReserve = v.type === 'reserve';
           const icon = isReserve ? '🎖️' : '🌴';
           const color = isReserve ? '#818CF8' : '#F59E0B';
-          td.appendChild(e("div", { style: `font-size:10px; color:${color}; font-weight:700; margin-bottom:2px;` }, `${icon} ${emp.name.split(" ")[0]}`));
+          td.appendChild(e("div", { 
+            style: `font-size:10px; color:${color}; font-weight:700; margin-bottom:2px; white-space:nowrap;` 
+          }, `${icon} ${emp.name.split(" ")[0]}`));
         }
       });
       if (dayAbsences.length === 0) td.appendChild(e("div", {style:"color:#334155; font-size:10px"}, "—"));
@@ -1319,16 +1332,17 @@ function viewSchedule() {
     tbody.appendChild(absenceRow);
   }
 
-  // בניית שורות המשמרות (בוקר, צהריים, לילה)
+  // --- בניית שורות המשמרות (בוקר, צהריים, לילה) ---
   SHIFTS.forEach(shift => {
     const row = e("tr");
-    row.appendChild(e("td", { style: "color:" + shift.color + "; text-align:right; padding: 10px 15px; font-weight: 800; border-left: 2px solid #334155;" }, [
+    row.appendChild(e("td", { 
+      style: "color:" + shift.color + "; text-align:right; padding: 10px 15px; font-weight: 800; border-left: 2px solid #334155;" 
+    }, [
       e("div", { style: "font-size:14px" }, shift.label),
       e("div", { style: "font-size:10px;opacity:0.6" }, shift.start + "–" + shift.end)
     ]));
 
     wd.forEach(date => {
-      // עדכון בלייב: קוראים מתוך S.schedule ולא מ-S.assignments
       const empIds = S.schedule[date]?.[shift.id] || [];
       const isSel = S.selectedCell?.date === date && S.selectedCell?.shift === shift.id;
       const canEdit = isManager();
@@ -1352,16 +1366,20 @@ function viewSchedule() {
             const col = ec(empIdx(empId));
             const ch = S.customHours[`${date}|${shift.id}|${empId}`];
             
-            // בדיקה אם העובד בסטטוס מיוחד באותו יום (להצגת אייקון קטן ליד השם בסידור)
-            const specialStatus = S.vacations.find(v => v.employee_id === empId && v.status === "approved" && date >= v.start_date && date <= v.end_date);
-            const statusIcon = specialStatus ? (specialStatus.type === 'reserve' ? '🎖️' : '🌴') : '';
+            // בדיקה האם יש לעובד מבחן באותו יום (📝)
+            const hasExam = S.vacations.find(v => 
+              v.employee_id === empId && 
+              v.type === "exam" && 
+              v.status === "approved" && 
+              date >= v.start_date && date <= v.end_date
+            );
 
             const chip = e("div", {
               class: "emp-chip",
               style: `background:${col}22; color:${col}; border:1px solid ${col}44`
             }, [
-              e("span", {}, statusIcon + " " + emp.name.split(" ")[0]),
-              ch ? e("span", { style: "font-size:10px; opacity:0.85; margin-right:4px; font-weight:600;" }, `(${ch.start}-${ch.end})`) : null
+              e("span", {}, (hasExam ? "📝 " : "") + emp.name.split(" ")[0]),
+              ch ? e("span", { style: "font-size:9px; opacity:0.8; margin-right:4px;" }, `(${ch.start}-${ch.end})`) : null
             ]);
             td.appendChild(chip);
           }
@@ -1377,11 +1395,12 @@ function viewSchedule() {
   gridCard.appendChild(gridWrap);
   wrap.appendChild(gridCard);
 
+  // --- עורך משמרת (מוצג כשלוחצים על תא) ---
   if (S.selectedCell) {
     wrap.appendChild(viewCellEditor(S.selectedCell.date, S.selectedCell.shift));
   }
 
-  // מחוון עומס עובדים בתחתית
+  // --- מחוון עומס עובדים בתחתית ---
   wrap.appendChild(viewWorkload(wd));
 
   return wrap;
