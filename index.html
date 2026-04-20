@@ -2068,18 +2068,22 @@ function viewEmpView() {
 
   wrap.appendChild(content);
 
-  // 4. תפריט צף (Floating Nav)
+ // 4. תפריט צף (Floating Nav)
   const navBar = div("", [], {style:"position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(30,41,59,0.96);backdrop-filter:blur(12px);padding:8px;border-radius:24px;display:flex;align-items:center;gap:5px;box-shadow:0 15px 35px rgba(0,0,0,0.6);z-index:1000;width:92%;max-width:380px;border:1px solid rgba(255,255,255,0.1)"});
   const tabs = [
     {id:"shifts",i:"📋",l:"משמרות"}, {id:"vacation",i:"🌴",l:"העדרות"}, 
-    {id:"home_btn",i:"📅",l:"בית"}, {id:"avail",i:"🚫",l:"חסימה"}, {id:"schedule",i:"📅",l:"סידור"}
+    {id:"home_btn",i:"📅",l:"בית"}, {id:"avail",i:"🚫",l:"חסימה"}, {id:"swaps",i:"🔄",l:"חילופים"} // <-- החלפנו כאן ל'חילופים'
   ];
   tabs.forEach(t=>{
     const isH = t.id==="home_btn"; const act = S.empViewTab===t.id;
     navBar.appendChild(e("button",{
-      style:isH ? "width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#3B82F6,#6366F1);border:none;font-size:24px;box-shadow:0 5px 15px rgba(59,130,246,0.4);margin:0 5px" 
+      style:isH ? "width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#3B82F6,#6366F1);border:none;font-size:24px;box-shadow:0 5px 15px rgba(59,130,246,0.4);margin:0 5px"  
                  : `flex:1;background:transparent;border:none;color:${act?"#3B82F6":"#94A3B8"};display:flex;flex-direction:column;align-items:center;gap:3px;`,
-      onclick:()=>{S.empViewTab=isH?"shifts":t.id;render()}
+      onclick:()=>{
+          // אם לחץ על חילופים, זה מעביר אותו למסך החילופים הגלובלי
+          if (t.id === "swaps") { S.view = "swaps"; render(); }
+          else { S.empViewTab = isH ? "shifts" : t.id; render(); }
+      }
     },[
       e("span",{style:isH?"":"font-size:20px"},isH?"📅":t.i),
       !isH?e("span",{style:"font-size:9px;font-weight:800"},t.l):null
