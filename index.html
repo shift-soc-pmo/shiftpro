@@ -1633,38 +1633,27 @@ function viewWorkload(wd) {
 // ── EMPLOYEES ──
 function viewEmployees() {
   const wrap = div("");
-  wrap.appendChild(div("page-title", ["👥 ניהול צוות עובדים"]));
+  wrap.appendChild(div("page-title", ["👥 ניהול צוות עובדים"], {style: "margin-bottom: 15px;"}));
 
-  wrap.appendChild(btn("btn-add", "+ הוסף עובד חדש", () => {
+  // --- באנר קוד הזמנה לעובדים חדשים ---
+  const inviteCode = generateInviteCode(S.profile.business_id);
+  const inviteCard = div("card", [
+      div("", [
+          e("div", {style: "font-weight:900; color:#3B82F6; font-size:15px; margin-bottom:5px"}, "🔗 קוד הזמנה לצוות"),
+          e("div", {style: "font-size:12px; color:#94A3B8; margin-bottom:12px"}, "שלח את הקוד הזה לעובדים חדשים. הם יזינו אותו במסך ההרשמה כדי להצטרף לסידור העבודה שלך.")
+      ]),
+      div("", [
+          e("div", {style: "background:#0F172A; border:1px dashed #3B82F6; padding:10px 15px; border-radius:10px; font-size:22px; font-weight:900; color:#F1F5F9; letter-spacing:4px; text-align:center; flex:1;"}, inviteCode)
+      ], {style:"display:flex; align-items:center;"})
+  ], {style: "border:1px solid #3B82F644; background:rgba(59, 130, 246, 0.05); margin-bottom:20px;"});
+  wrap.appendChild(inviteCard);
+  // --- סוף באנר קוד הזמנה ---
+
+  wrap.appendChild(btn("btn-add", "+ הוסף עובד חדש ידנית", () => {
     S.editingEmp = { name: "", email: "", role: "employee", emp_code: "" };
     S.showEmpModal = true;
     render();
   }, { style: "width:100%; margin-bottom:20px; padding:15px;" }));
-
-  // --- כפתורים זמניים לטסטים (אפשר למחוק אח"כ) ---
-  wrap.appendChild(btn("", "🧪 הוסף 5 משתמשי טסט", async () => {
-      if(!confirm("להוסיף 5 עובדים פיקטיביים?")) return;
-      const testUsers = [
-          { id: crypto.randomUUID(), name: "טסט 1 (דני)", email: "test1@soc.com", emp_code: "T001", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
-          { id: crypto.randomUUID(), name: "טסט 2 (רוני)", email: "test2@soc.com", emp_code: "T002", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
-          { id: crypto.randomUUID(), name: "טסט 3 (מיכל)", email: "test3@soc.com", emp_code: "T003", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
-          { id: crypto.randomUUID(), name: "טסט 4 (אלכס)", email: "test4@soc.com", emp_code: "T004", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
-          { id: crypto.randomUUID(), name: "טסט 5 (יעל)", email: "test5@soc.com", emp_code: "T005", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 }
-      ];
-      await sb.from("profiles").insert(testUsers);
-      toast("5 משתמשי טסט נוספו ✓");
-      await loadEmployees();
-      render();
-  }, { style: "width:100%; margin-bottom:10px; padding:15px; background: #8B5CF6; color: white; border: none; border-radius: 12px; font-weight: bold;" }));
-
-  wrap.appendChild(btn("", "🗑️ נקה משתמשי טסט", async () => {
-      if(!confirm("למחוק את כל משתמשי הטסט לצמיתות?")) return;
-      await sb.from("profiles").delete().like("email", "test%@soc.com");
-      toast("משתמשי הטסט נמחקו ✓");
-      await loadEmployees();
-      render();
-  }, { style: "width:100%; margin-bottom:20px; padding:15px; background: #EF4444; color: white; border: none; border-radius: 12px; font-weight: bold;" }));
-  // --- סוף כפתורים זמניים ---
 
   const list = div("card-list");
   const activeEmps = S.employees.filter(e => !e.is_deleted);
