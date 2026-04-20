@@ -589,7 +589,9 @@ async function loadSchedule() {
     .select("*").eq("business_id", S.profile.business_id)
     .eq("week_start", weekStart).maybeSingle();
 
-  if (!sched) { 
+  // --- תיקון קריטי: הסתרת טיוטות מעובדים ---
+  // אם אין סידור, או שאתה עובד והסידור עדיין לא פורסם -> תחזיר מסך ריק
+  if (!sched || (S.profile.role === "employee" && !sched.published)) { 
     S.schedule = {}; 
     S.assignments = []; 
     return; 
@@ -607,7 +609,6 @@ async function loadSchedule() {
 
   S.assignments = assignments || [];
 
-  // בונה מחדש את מבנה הנתונים שהלוח המקורי שלך מכיר
   const sched_obj = {};
   weekDates.forEach(d => {
     sched_obj[d] = {};
@@ -632,7 +633,6 @@ async function loadSchedule() {
   S.schedule = sched_obj;
   S.schedule.id = sched.id;
 }
-
 // ══════════════════════════════════════════════════════
 // EMAIL NOTIFICATIONS via Supabase Edge Function + Resend
 // ══════════════════════════════════════════════════════
