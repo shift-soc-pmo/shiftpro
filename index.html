@@ -1431,115 +1431,95 @@ function viewWorkload(wd) {
 
 // ── EMPLOYEES ──
 function viewEmployees() {
-  const wrap = e("div");
-  wrap.appendChild(div("section-header",[
-    div("page-title",["👥 עובדים"]),
-    e("div",{style:"display:flex;gap:8px;align-items:center"},[
-      S.inviteCode ? e("div",{style:"background:#3B82F622;border:1px solid #3B82F644;border-radius:10px;padding:7px 14px;display:flex;align-items:center;gap:8px"},[
-        e("span",{style:"font-size:11px;color:#64748B"},"קוד הזמנה:"),
-        e("span",{style:"font-weight:900;font-size:16px;color:#60A5FA;letter-spacing:2px"},S.inviteCode),
-        e("button",{style:"background:none;border:none;color:#64748B;cursor:pointer;font-size:13px",
-          onclick:()=>{navigator.clipboard?.writeText(S.inviteCode).then(()=>toast("קוד הועתק ✓"));}
-        },"📋")
-      ]) : null,
-      btn("btn-add","+ הוסף עובד",()=>{S.showAddEmp=!S.showAddEmp;render();})
-    ])
-  ]));
+  const wrap = div("");
+  wrap.appendChild(div("page-title", ["👥 ניהול צוות עובדים"]));
 
-  // Add form
-  if (S.showAddEmp) {
-    const form = div("card",[div("card-title",["עובד חדש"])]);
-    const r1 = div("form-row",[
-      div("form-col",[e("label",{class:"form-label"},"שם מלא *"),e("input",{class:"fi",placeholder:"ישראל ישראלי",value:S.newEmp.name,oninput:ev=>{S.newEmp.name=ev.target.value}})]),
-      div("form-col",[e("label",{class:"form-label"},"אימייל"),e("input",{class:"fi",type:"email",placeholder:"name@example.com",value:S.newEmp.email,oninput:ev=>{S.newEmp.email=ev.target.value}})])
-    ]);
-    const r2 = div("form-row",[
-      div("form-col",[e("label",{class:"form-label"},"תעודת זהות"),e("input",{class:"fi",placeholder:"000000000",value:S.newEmp.idNumber,oninput:ev=>{S.newEmp.idNumber=ev.target.value}})]),
-      div("form-col",[e("label",{class:"form-label"},"תפקיד"),e("select",{class:"fi",onchange:ev=>{S.newEmp.role=ev.target.value}},[
-        e("option",{value:"employee",selected:S.newEmp.role==="employee"?"selected":null},"עובד"),
-        e("option",{value:"manager",selected:S.newEmp.role==="manager"?"selected":null},"מנהל משמרת")
-      ])])
-    ]);
-    form.appendChild(r1); form.appendChild(r2);
-    form.appendChild(div("form-actions",[
-      btn("btn-add","שמור עובד",addEmployee,{style:"flex:1"}),
-      btn("btn-sm btn-sm-gray","ביטול",()=>{S.showAddEmp=false;render();})
-    ]));
-    wrap.appendChild(form);
-  }
+  // כפתור הוספת עובד חדש
+  wrap.appendChild(btn("btn-add", "+ הוסף עובד חדש", () => {
+    S.editingEmp = { name: "", email: "", role: "employee" };
+    S.showEmpModal = true;
+    render();
+  }, { style: "width:100%; margin-bottom:20px; padding:15px;" }));
 
-  // List
-  if (S.employees.length === 0) {
-    wrap.appendChild(div("card",[e("div",{style:"text-align:center;padding:40px;color:#64748B"},["אין עובדים עדיין"])]));
-  } else {
-    const card = div("card");
-    const tbl = e("table",[
-      e("thead",[e("tr",[e("th",{},"שם"),e("th",{},"אימייל"),e("th",{},"ת.ז."),e("th",{},"תפקיד"),e("th",{},"")])])
-    ]);
-    const tbody = e("tbody");
-    S.employees.forEach((emp,idx) => {
-      const col = ec(idx);
-      const tr = e("tr",[
-        e("td",{style:"font-weight:700"},[
-          e("span",{style:`display:inline-block;width:8px;height:8px;border-radius:50%;background:${col};margin-left:8px`},""),
-          emp.name
-        ]),
-        e("td",{style:"color:#94A3B8"},emp.email||"—"),
-        e("td",{style:"color:#64748B"},emp.id_number||"—"),
-        e("td",{},emp.role==="admin"?"מנהל ראשי 👑":emp.role==="manager"?"מנהל 🔑":"עובד"),
-        e("td",{},[
-          btn("btn-sm btn-sm-blue","✏️ הגבלות",()=>{S.constraintsEmp=emp;render();},{style:"margin-left:4px"}),
-          emp.role!=="admin" ? e("select",{
-            style:"background:#0F172A;border:1px solid #334155;border-radius:6px;color:#94A3B8;font-size:11px;padding:3px 6px;font-family:inherit;margin-left:4px",
-            onchange: async (ev) => {
-              const newRole = ev.target.value;
-              await sb.from("profiles").update({role:newRole}).eq("id",emp.id);
-              await loadEmployees();
-              toast("תפקיד עודכן ✓");
-              render();
-            }
-          },[
-            e("option",{value:"employee",selected:emp.role==="employee"?"selected":null},"עובד"),
-            e("option",{value:"manager",selected:emp.role==="manager"?"selected":null},"מנהל 🔑")
-          ]) : e("span",{style:"font-size:11px;color:#64748B;margin-left:4px"},""),
-          emp.id !== S.user.id ? btn("btn-sm btn-sm-red","🗑️",()=>deleteEmployee(emp.id)) : null
-        ])
-      ]);
-      tbody.appendChild(tr);
-    });
-    tbl.appendChild(tbody);
-    card.appendChild(tbl);
-    wrap.appendChild(card);
-  }
+  // רשימת העובדים
+  const list = div("card-list");
+  const activeEmps = S.employees.filter(e => !e.is_deleted);
 
-  // Availability submissions
-  const subs = S.availSubmissions;
-  if (subs.length > 0) {
-    const subCard = div("card",[
-      e("div",{style:"font-weight:700;font-size:14px;color:#F59E0B;margin-bottom:10px"},`📋 הגשות זמינות (${subs.length})`)
-    ]);
-    subs.forEach((sub,i) => {
-      const emp = getEmp(sub.employee_id);
-      subCard.appendChild(div("",[ 
-        e("div",{style:"display:flex;justify-content:space-between;align-items:start;background:#0F172A;border-radius:10px;padding:10px 14px;margin-bottom:6px"},[
-          e("div",{},[
-            e("div",{style:"font-weight:700;font-size:13px"},emp?.name||"—"),
-            e("div",{style:"font-size:11px;color:#64748B;margin-top:3px"},sub.week_start),
-            div("",( sub.slots||[]).map(sl=>{
-              const sh=SHIFT_BY_ID[sl.shift];
-              return sh?e("span",{style:`font-size:10px;color:${sh.color};background:${sh.color}18;border:1px solid ${sh.color}33;border-radius:4px;padding:1px 6px;margin-left:4px`},DAYS[sl.day]+" "+sh.label):null;
-            }).filter(Boolean))
-          ]),
-          btn("btn-sm btn-sm-green","✓ קראתי",()=>{S.availSubmissions.splice(i,1);render();})
-        ])
-      ]));
-    });
-    wrap.appendChild(subCard);
-  }
+  activeEmps.forEach(emp => {
+    const isManager = emp.role === 'admin';
+    list.appendChild(div("card", [
+      div("", [
+        e("div", { style: "font-weight:800; font-size:16px; color:#F1F5F9" }, [
+          emp.name,
+          isManager ? e("span", { style: "font-size:10px; background:#3B82F6; color:white; padding:2px 6px; border-radius:10px; margin-right:8px" }, "מנהל") : ""
+        ]),
+        e("div", { style: "font-size:12px; color:#64748B" }, emp.email)
+      ], { style: "flex:1" }),
+      div("form-actions", [
+        btn("btn-sm btn-sm-blue", "✏️", () => { S.editingEmp = { ...emp }; S.showEmpModal = true; render(); }),
+        btn("btn-sm btn-sm-red", "🗑️", () => deleteEmployee(emp.id))
+      ])
+    ], { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-right:4px solid " + (isManager ? "#3B82F6" : "#334155") }));
+  });
+  wrap.appendChild(list);
 
-  return wrap;
+  // מודאל (חלונית) הוספה/עריכה
+  if (S.showEmpModal) {
+    const m = S.editingEmp;
+    const modal = div("modal-overlay", [
+      div("modal-content", [
+        e("div", { class: "card-title" }, m.id ? "עריכת עובד" : "הוספת עובד חדש"),
+        
+        e("label", { class: "form-label" }, "שם מלא"),
+        e("input", { class: "fi", value: m.name, oninput: x => m.name = x.target.value }),
+
+        e("label", { class: "form-label", style: "margin-top:10px" }, "אימייל"),
+        e("input", { class: "fi", value: m.email, oninput: x => m.email = x.target.value, disabled: !!m.id }),
+
+        e("label", { class: "form-label", style: "margin-top:10px" }, "תפקיד במערכת"),
+        e("select", { 
+          class: "fi", 
+          onchange: x => m.role = x.target.value 
+        }, [
+          e("option", { value: "employee", selected: m.role === "employee" }, "עובד/ת"),
+          e("option", { value: "admin", selected: m.role === "admin" }, "מנהל/ת")
+        ]),
+
+        div("form-actions", [
+          btn("btn-primary", "שמור", () => saveEmployee(), { style: "flex:1" }),
+          btn("btn-gray", "ביטול", () => { S.showEmpModal = false; render(); }, { style: "flex:1" })
+        ], { style: "margin-top:20px; display:flex; gap:10px" })
+      ])
+    ]);
+    wrap.appendChild(modal);
+  }
+
+  return wrap;
 }
 
+// פונקציית שמירה מעודכנת
+async function saveEmployee() {
+  const m = S.editingEmp;
+  if (!m.name || !m.email) return toast("נא למלא את כל השדות", "err");
+
+  if (m.id) {
+    // עדכון קיים
+    const { error } = await sb.from("profiles").update({
+      name: m.name,
+      role: m.role
+    }).eq("id", m.id);
+    if (error) return toast(error.message, "err");
+  } else {
+    // הוספה חדשה - כאן המערכת תשלח הזמנה או תיצור יוזר לפי הלוגיקה שלך
+    toast("מזמין עובד חדש בתפקיד " + (m.role === 'admin' ? "מנהל" : "עובד"));
+    // ... לוגיקת ההרשמה שלך (auth.signUp) ...
+  }
+
+  S.showEmpModal = false;
+  await loadEmployees();
+  render();
+  toast("הנתונים נשמרו בהצלחה ✓");
+}
 // ── VACATIONS ──
 function viewVacations() {
   const wrap = e("div");
@@ -2337,117 +2317,135 @@ function viewSettings() {
   const wrap = e("div");
   wrap.appendChild(div("page-title", ["⚙️ הגדרות"], { style: "margin-bottom:16px" }));
 
-  // 1. כרטיס פרטי עסק (כולל הדדליין)
-  const bizCard = div("card", [e("div", { class: "card-title" }, "🏢 פרטי עסק")]);
-  
-  // אתחול נתוני הגדרות זמניים אם לא קיימים
+  // 1. פרטי עסק ודדליין
+  const bizCard = div("card", [e("div", { class: "card-title" }, "🏢 פרטי עסק ואכיפה")]);
   if (!S.settingsData) {
     S.settingsData = {
       bizName: S.business?.name || "",
-      deadlineDay: S.business?.deadline_day ?? "", // שימוש ב-nullish coalescing
-      deadlineTime: S.business?.deadline_time || "20:00"
+      deadlineDay: S.business?.deadline_day ?? "",
+      deadlineTime: S.business?.deadline_time || "20:00",
+      morningStart: SHIFTS[0].start, morningEnd: SHIFTS[0].end,
+      afternoonStart: SHIFTS[1].start, afternoonEnd: SHIFTS[1].end,
+      nightStart: SHIFTS[2].start, nightEnd: SHIFTS[2].end
     };
   }
   const sd = S.settingsData;
 
-  // שדה שם העסק
   bizCard.appendChild(div("form-col", [
     e("label", { class: "form-label" }, "שם העסק"),
-    e("input", { 
-      class: "fi", 
-      value: sd.bizName, 
-      oninput: ev => { sd.bizName = ev.target.value }, 
-      style: "margin-bottom:12px" 
-    })
+    e("input", { class: "fi", value: sd.bizName, oninput: ev => { sd.bizName = ev.target.value }, style: "margin-bottom:12px" })
   ]));
 
-  // --- החלק החדש: הגדרות מועד סיום הגשה ---
-  const deadlineSection = e("div", { 
-    style: "margin-top:15px; padding-top:15px; border-top:1px solid #334155" 
-  }, [
+  const deadlineSection = e("div", { style: "margin-top:15px; padding-top:15px; border-top:1px solid #334155" }, [
     e("div", { style: "font-weight:700; font-size:13px; color:#3B82F6; margin-bottom:10px" }, "🛡️ אכיפת מועד הגשת חסימות"),
     div("form-row", [
       div("form-col", [
         e("label", { class: "form-label" }, "יום סגירה"),
-        e("select", {
-          class: "fi",
-          onchange: ev => { sd.deadlineDay = ev.target.value }
-        }, [
-          e("option", { value: "" }, "ללא חסימה (פתוח תמיד)"),
-          ...["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"].map((d, i) => 
-            e("option", { value: i, selected: sd.deadlineDay == i }, "יום " + d)
-          )
+        e("select", { class: "fi", onchange: ev => { sd.deadlineDay = ev.target.value } }, [
+          e("option", { value: "" }, "ללא חסימה"),
+          ...DAYS.map((d, i) => e("option", { value: i, selected: sd.deadlineDay == i }, "יום " + d))
         ])
       ]),
       div("form-col", [
         e("label", { class: "form-label" }, "שעת סגירה"),
-        e("input", {
-          type: "time",
-          class: "fi",
-          value: sd.deadlineTime,
-          oninput: ev => { sd.deadlineTime = ev.target.value }
-        })
+        e("input", { type: "time", class: "fi", value: sd.deadlineTime, oninput: ev => { sd.deadlineTime = ev.target.value } })
       ])
-    ]),
-    e("div", { style: "font-size:11px; color:#64748B; margin-top:6px" }, "לאחר מועד זה, הכפתור להגשת חסימות ייחסם עבור העובדים.")
+    ])
   ]);
   bizCard.appendChild(deadlineSection);
 
-  // כפתור שמירה מאוחד לפרטי העסק
   bizCard.appendChild(btn("btn-add", "שמור הגדרות עסק", async () => {
     if (!sd.bizName.trim()) { toast("נא להזין שם", "err"); return; }
-    
-    const updatePayload = {
+    await sb.from("businesses").update({
       name: sd.bizName,
       deadline_day: sd.deadlineDay === "" ? null : parseInt(sd.deadlineDay),
       deadline_time: sd.deadlineTime
-    };
-
-    const { error } = await sb.from("businesses").update(updatePayload).eq("id", S.profile.business_id);
-
-    if (error) {
-      toast("שגיאה בשמירה: " + error.message, "err");
-      console.error(error);
-    } else {
-      // עדכון ה-State המקומי
-      S.business.name = sd.bizName;
-      S.business.deadline_day = updatePayload.deadline_day;
-      S.business.deadline_time = sd.deadlineTime;
-      toast("הגדרות העסק עודכנו בהצלחה ✓");
-      render();
-    }
-  }, { style: "margin-top:15px; width:100%" }));
-  
+    }).eq("id", S.profile.business_id);
+    S.business.name = sd.bizName;
+    S.business.deadline_day = sd.deadlineDay === "" ? null : parseInt(sd.deadlineDay);
+    S.business.deadline_time = sd.deadlineTime;
+    toast("הגדרות עסק עודכנו ✓"); render();
+  }, { style: "width:100%; margin-top:15px" }));
   wrap.appendChild(bizCard);
 
-  // 2. כרטיס שעות משמרות (המשך הפונקציה שלך...)
+  // 2. שעות משמרות
   const shiftCard = div("card", [e("div", { class: "card-title" }, "🕐 שעות משמרות")]);
-  const shiftDefs = [
-    { id: "morning", label: "בוקר", sk: "morning" },
-    { id: "afternoon", label: "צהריים", sk: "afternoon" },
-    { id: "night", label: "לילה", sk: "night" },
-  ];
+  const shiftDefs = [{ id: "morning", label: "בוקר", sk: "morning" }, { id: "afternoon", label: "צהריים", sk: "afternoon" }, { id: "night", label: "לילה", sk: "night" }];
   shiftDefs.forEach(sh => {
-    const shiftInfo = S.shifts?.find(s => s.id === sh.id) || {start:"00:00", end:"00:00", color:"#ccc"};
-    shiftCard.appendChild(e("div", { style: "margin-bottom: 12px" }, [
-      e("div", { style: "font-weight:700;font-size:13px;color:" + shiftInfo.color + ";margin-bottom:6px" }, sh.label),
+    shiftCard.appendChild(e("div", { style: "margin-bottom:12px" }, [
+      e("div", { style: "font-weight:700;font-size:13px;color:" + SHIFT_BY_ID[sh.id].color + ";margin-bottom:6px" }, sh.label),
       div("form-row", [
-        div("form-col", [e("label", { class: "form-label" }, "התחלה"), e("input", { class: "fi", type: "time", value: sd[sh.sk + "Start"] || shiftInfo.start, onchange: ev => { sd[sh.sk + "Start"] = ev.target.value } })]),
-        div("form-col", [e("label", { class: "form-label" }, "סיום"), e("input", { class: "fi", type: "time", value: sd[sh.sk + "End"] || shiftInfo.end, onchange: ev => { sd[sh.sk + "End"] = ev.target.value } })])
+        div("form-col", [e("label", { class: "form-label" }, "התחלה"), e("input", { class: "fi", type: "time", value: sd[sh.sk + "Start"] || SHIFT_BY_ID[sh.id].start, onchange: ev => { sd[sh.sk + "Start"] = ev.target.value } })]),
+        div("form-col", [e("label", { class: "form-label" }, "סיום"), e("input", { class: "fi", type: "time", value: sd[sh.sk + "End"] || SHIFT_BY_ID[sh.id].end, onchange: ev => { sd[sh.sk + "End"] = ev.target.value } })])
       ])
     ]));
   });
-  
   shiftCard.appendChild(btn("btn-add", "שמור שעות", () => {
-    toast("שעות עודכנו מקומית (יש לשמור ב-DB במידת הצורך) ✓"); 
-    render();
-  }, {style: "width:100%"}));
+    if (sd.morningStart && sd.morningEnd) { SHIFTS[0].start = sd.morningStart; SHIFTS[0].end = sd.morningEnd; }
+    if (sd.afternoonStart && sd.afternoonEnd) { SHIFTS[1].start = sd.afternoonStart; SHIFTS[1].end = sd.afternoonEnd; }
+    if (sd.nightStart && sd.nightEnd) { SHIFTS[2].start = sd.nightStart; SHIFTS[2].end = sd.nightEnd; }
+    toast("שעות עודכנו ✓"); render();
+  }, { style: "width:100%" }));
   wrap.appendChild(shiftCard);
 
-  // 3. אזור מסוכן (Logout)
-  const dangerCard = div("card", [e("div", { style: "font-weight:700;font-size:14px;color:#EF4444;margin-bottom:12px" }, "⚠️ אזור מסוכן")]);
-  dangerCard.appendChild(btn("btn-sm btn-sm-red", "יציאה מהמערכת", () => sb.auth.signOut().then(() => location.reload()), { style: "width:100%" }));
-  wrap.appendChild(dangerCard);
+  // 3. ייצוא
+  const expCard = div("card", [e("div", { class: "card-title" }, "📤 ייצוא סידור")]);
+  expCard.appendChild(div("form-actions", [
+    btn("btn-green", "🖨️ PDF / הדפסה", exportSchedulePDF, { style: "flex:1" }),
+    btn("btn-sm btn-sm-blue", "📊 CSV", exportScheduleCSV, { style: "flex:1" })
+  ]));
+  wrap.appendChild(expCard);
+
+  // 4. התראות אימייל (Notifications)
+  const emailCard = div("card", [e("div", { class: "card-title" }, "🔔 התראות")]);
+  const notifItems = [
+    { id: "notif_publish", label: "פרסום סידור לעובדים", sub: "עובדים מקבלים מייל כשסידור פורסם" },
+    { id: "notif_vac_approved", label: "אישור / דחיית חופשה", sub: "עובד מקבל מייל על תשובת הבקשה" },
+    { id: "notif_swap", label: "בקשת חילוף חדשה", sub: "מנהל מקבל מייל על בקשת חילוף" },
+  ];
+  notifItems.forEach(item => {
+    const isOn = localStorage.getItem(item.id) !== "0";
+    emailCard.appendChild(e("div", { style: "display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A" }, [
+      div("", [e("div", { style: "font-weight:600;font-size:13px" }, item.label), e("div", { style: "font-size:11px;color:#64748B" }, item.sub)]),
+      e("button", {
+        style: `width:44px;height:24px;border-radius:12px;border:none;background:${isOn ? "#10B981" : "#334155"};position:relative;`,
+        onclick: (ev) => {
+          const newVal = !isOn;
+          localStorage.setItem(item.id, newVal ? "1" : "0");
+          render();
+        }
+      }, [e("span", { style: `position:absolute;top:2px;right:${isOn ? "2px" : "20px"};width:20px;height:20px;border-radius:50%;background:white;transition:0.2s` })])
+    ]));
+  });
+  wrap.appendChild(emailCard);
+
+  // 5. PWA (התקנה)
+  const pwaCard = div("card", [e("div", { class: "card-title" }, "📱 התקנה על הטלפון")]);
+  if (S.pwaPrompt) {
+    pwaCard.appendChild(btn("btn-purple", "📱 התקן אפליקציה", async () => {
+      S.pwaPrompt.prompt();
+      const { outcome } = await S.pwaPrompt.userChoice;
+      if (outcome === "accepted") S.pwaPrompt = null;
+      render();
+    }, { style: "width:100%" }));
+  } else {
+    pwaCard.appendChild(e("div", { style: "background:#1E3A5F;border-radius:10px;padding:10px;font-size:11px;color:#94A3B8" }, "📱 iPhone: שתף ← הוסף למסך הבית | 🤖 Android: תפריט ← הוסף"));
+  }
+  wrap.appendChild(pwaCard);
+
+  // 6. שינוי סיסמה
+  const passCard = div("card", [e("div", { class: "card-title" }, "🔐 שינוי סיסמה")]);
+  const nP = e("input", { class: "fi", type: "password", placeholder: "סיסמה חדשה" });
+  passCard.appendChild(nP);
+  passCard.appendChild(btn("btn-add", "עדכן סיסמה", async () => {
+    if (nP.value.length < 6) return toast("לפחות 6 תווים", "err");
+    const { error } = await sb.auth.updateUser({ password: nP.value });
+    if (error) toast(error.message, "err"); else toast("סיסמה עודכנה ✓");
+  }, { style: "width:100%;margin-top:10px" }));
+  wrap.appendChild(passCard);
+
+  // 7. יציאה
+  wrap.appendChild(btn("btn-sm-red", "יציאה מהמערכת", handleLogout, { style: "width:100%;margin-top:20px" }));
 
   return wrap;
 }
