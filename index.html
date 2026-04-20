@@ -529,6 +529,9 @@ async function loadEmployees() {
 }
 
 async function loadVacations() {
+  // --- השורה שהוספנו: מונעת שגיאת "null" ב-Supabase ---
+  if (!S.profile?.business_id) return;
+
   try {
     // שליפת כל ההיעדרויות (חופשה, מילואים, מבחן) ללא סינון סוג
     const { data, error } = await sb
