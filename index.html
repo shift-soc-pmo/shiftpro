@@ -1928,17 +1928,20 @@ function viewSwaps() {
         wrap.appendChild(handoverCard);
 
         // חלק ב': הצטרפות
+       // חלק ב': הצטרפות
         const joinCard = div("card", [e("h3", {style:"color:#10B981; margin-bottom:15px; font-size:15px;"}, "➕ בקשת תגבור/הצטרפות")]);
         let foundJoin = false;
         Object.keys(S.schedule).forEach(d => {
             if (d >= todayStr) Object.keys(S.schedule[d]).forEach(sh => {
                 const emps = S.schedule[d][sh];
-                if (!emps.includes(S.user.id) && emps.length > 0) { // מציג רק משמרות שמאוישות חלקית או שאינו מופיע בהן
+                
+                // התיקון: הוספנו את Array.isArray(emps) כדי לוודא שזה מערך חוקי ולא יקרוס
+                if (Array.isArray(emps) && !emps.includes(S.user.id) && emps.length > 0) { 
                     foundJoin = true;
                     joinCard.appendChild(div("", [
                         div("", [
                             e("div", {style:"font-weight:800; font-size:13px;"}, `${fmtDate(d)} - ${SHIFT_LABELS[sh]}`),
-                            e("div", {style:"font-size:11px; color:#94A3B8;"}, `משובצים: ${emps.map(id=>getEmp(id)?.name.split(" ")[0]).join(", ")}`)
+                            e("div", {style:"font-size:11px; color:#94A3B8;"}, `משובצים: ${emps.map(id=>getEmp(id)?.name.split(" ")[0] || "עובד").join(", ")}`)
                         ], {style:"flex:1"}),
                         btn("btn-sm btn-sm-blue", "הצטרף", () => handleJoinRequest(d, sh))
                     ], {style:"display:flex; align-items:center; background:#0F172A; border:1px solid #1E293B; padding:10px; margin-bottom:8px; border-radius:8px;"}));
