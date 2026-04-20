@@ -510,7 +510,8 @@ async function loadAll(user){
     loadEmployees(), 
     loadVacations(), 
     loadSchedule(), 
-    loadAvailability() // <--- המשיכה של נתוני ה-🚫
+    loadAvailability()// <--- המשיכה של נתוני ה-🚫
+    loadSwaps()
   ]);
   
   // 3. ניתוב המסך הראשון (מנהל לבית, עובד למסך האישי שלו)
@@ -569,11 +570,11 @@ async function loadAvailability() {
     S.availSubmissions = data; // שומר את זה בזיכרון של האפליקציה
   }
 }  
-async function loadSwapRequests() {
-  if (!S.profile?.business_id) return;
-  const { data } = await sb.from("swap_requests").select("*")
-    .eq("business_id", S.profile.business_id).order("created_at", {ascending:false});
-  S.swapRequests = data || [];
+async function loadSwaps() {
+  if (!S.profile?.business_id) return;
+  const { data, error } = await sb.from("swaps").select("*")
+    .eq("business_id", S.profile.business_id).order("created_at", {ascending:false});
+  S.swaps = data || [];
 }
 
 async function loadSchedule() {
@@ -929,68 +930,96 @@ async function updateVacStatus(id, status) {
 // ══════════════════════════════════════════════════════
 // SWAP ACTIONS
 // ══════════════════════════════════════════════════════
-async function updateSwapStatus(id, status) {
-  try {
-    // 1. עדכון סטטוס הבקשה במסד הנתונים
-    const { error: swapErr } = await sb.from("swap_requests").update({ status }).eq("id", id);
-    if (swapErr) throw swapErr;
+// --- מנוע חסימות ל-SOC ---
+function isShiftLegal(empId, targetDate, targetShift) {
+    const dayAfter = new Date(new Date(targetDate).getTime() + 86400000).toISOString().split('T')[0];
+    const dayBefore = new Date(new Date(targetDate).getTime() - 86400000).toISOString().split('T')[0];
 
-    const sw = S.swapRequests.find(s => s.id === id);
-    if (!sw) return;
+    // חסימת כפל משמרות
+    const workingToday = Object.values(S.schedule[targetDate] || {}).some(emps => emps.includes(empId));
+    if (workingToday) return { legal: false, msg: "כבר משובץ למשמרת ביום זה." };
+
+    // חסימת לילה ואז בוקר
+    if (targetShift === 'night' && (S.schedule[dayAfter]?.['morning'] || []).includes(empId)) {
+        return { legal: false, msg: "לא ניתן לשבץ לילה לפני משמרת בוקר." };
+    }
+    if (targetShift === 'morning' && (S.schedule[dayBefore]?.['night'] || []).includes(empId)) {
+        return { legal: false, msg: "ביצע משמרת לילה אתמול, דרושה מנוחה." };
+    }
+    return { legal: true };
+}
+
+// --- שליחת מיילים דרך הפונקציה הקיימת שלך ב-Supabase ---
+async function sendSystemEmail(toEmail, subject, title, body) {
+    if (!toEmail) return;
+    try {
+        await sb.functions.invoke('send-shift-email', {
+            body: { 
+                to: toEmail, subject: subject, 
+                html: `<div style="direction:rtl; font-family:sans-serif; text-align:right;">
+                       <h2 style="color:#3B82F6">${title}</h2><p>${body}</p></div>` 
+            }
+        });
+    } catch (e) { console.error("שגיאת מייל:", e); }
+}
+
+// --- פעולות עובד ---
+async function submitHandoverRequest(date, shiftId, takerId) {
+    const taker = getEmp(takerId);
+    const check = isShiftLegal(takerId, date, shiftId);
     
-    // 2. עדכון בטבלת השיבוצים מול Supabase ישירות (מונע את שגיאת הקריסה)
-    if (status === "approved") {
-      if (sw.type === 'swap' && sw.target_employee_id) {
-        // חילוף
-        await sb.from("assignments").update({ employee_id: sw.requester_id })
-          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.target_employee_id });
-      } else if (sw.type === 'take') {
-        // מחיקה (קחו משמרת)
-        await sb.from("assignments").delete()
-          .match({ date: sw.target_date, shift: sw.target_shift, employee_id: sw.requester_id });
-      } else if (sw.type === 'join') {
-        // הצטרפות
-        if (S.schedule?.id) {
-          await sb.from("assignments").insert({ 
-            schedule_id: S.schedule.id, employee_id: sw.requester_id, 
-            date: sw.target_date, shift: sw.target_shift 
-          });
+    if (!check.legal) return toast(`חסימה עבור ${taker.name}: ${check.msg}`, "err");
+
+    await sb.from("swaps").insert([{ business_id: S.profile.business_id, giver_id: S.user.id, taker_id: takerId, date, shift: shiftId }]);
+    
+    // מציאת המייל של המנהל ושליחת התראה
+    const adminEmp = S.employees.find(e => e.role === "admin");
+    if(adminEmp?.email) {
+        await sendSystemEmail(adminEmp.email, "בקשת מסירת משמרת", "אישור מסירה", `העובד ${S.profile.name} מוסר את משמרת ה${SHIFT_LABELS[shiftId]} ב-${fmtDate(date)} ל-${taker.name}.`);
+    }
+    
+    toast("הבקשה נשלחה למנהל");
+    loadSwaps().then(render);
+}
+
+async function handleJoinRequest(date, shiftId) {
+    const check = isShiftLegal(S.user.id, date, shiftId);
+    if (!check.legal) return toast(`חסימה: ${check.msg}`, "err");
+
+    await sb.from("swaps").insert([{ business_id: S.profile.business_id, taker_id: S.user.id, giver_id: null, date, shift: shiftId }]);
+    
+    const adminEmp = S.employees.find(e => e.role === "admin");
+    if(adminEmp?.email) {
+        await sendSystemEmail(adminEmp.email, "בקשת תגבור", "הצטרפות למשמרת", `העובד ${S.profile.name} מבקש להצטרף למשמרת ${SHIFT_LABELS[shiftId]} ב-${fmtDate(date)}.`);
+    }
+    
+    toast("בקשת ההצטרפות נשלחה");
+    loadSwaps().then(render);
+}
+
+// --- פעולות מנהל ---
+async function processManagerDecision(swap, isApproved) {
+    if (isApproved) {
+        let emps = S.schedule[swap.date][swap.shift];
+        if (swap.giver_id) { 
+            const idx = emps.indexOf(swap.giver_id);
+            if (idx > -1) emps[idx] = swap.taker_id;
+        } else { 
+            if (!emps.includes(swap.taker_id)) emps.push(swap.taker_id);
         }
-      }
+        await saveScheduleToDB();
     }
 
-    // 3. טעינת הלוח המעודכן מהשרת
-    await loadSchedule();
-    await loadSwapRequests();
+    const newStatus = isApproved ? 'approved' : 'rejected';
+    await sb.from("swaps").update({ status: newStatus }).eq("id", swap.id);
 
-    // 4. שליחת מייל אוטומטי - עם השמות המדויקים שהשרת שלך מחפש!
-    if (sw) {
-      const requester = getEmp(sw.requester_id);
-      if (requester && requester.email) {
-        const sh = SHIFT_BY_ID[sw.target_shift];
-        const actionText = status === "approved" ? "אושרה" : "נדחתה";
-        const shiftDetailsText = `${sw.target_date} — ${sh ? sh.label : sw.target_shift}`;
-        
-        sendEmail(
-          "swap_status", 
-          requester.email, 
-          {
-            empName: requester.name,
-            status: actionText,       // זה יתחבר ל- ${data.status} ויעלים את ה-undefined
-            details: shiftDetailsText // זה יתחבר ל- ${data.details} ויעלים את ה-undefined
-          }
-        );
-      }
+    const taker = getEmp(swap.taker_id);
+    if(taker?.email) {
+        await sendSystemEmail(taker.email, "עדכון בקשת משמרת", isApproved ? "המשמרת אושרה!" : "הבקשה נדחתה", `בקשתך למשמרת ${SHIFT_LABELS[swap.shift]} ב-${fmtDate(swap.date)} ${isApproved ? 'אושרה ועודכנה בסידור' : 'לא אושרה על ידי המנהל'}.`);
     }
 
-    // 5. ריענון המסך
-    toast(status === "approved" ? "הפעולה אושרה והלוח עודכן ✓" : "הבקשה נדחתה");
-    render(); 
-
-  } catch (err) {
-    console.error("Swap Error:", err);
-    toast("שגיאה בעדכון הנתונים", "err");
-  }
+    toast(isApproved ? "הסידור עודכן!" : "הבקשה נדחתה");
+    loadSwaps().then(render);
 }
 // ══════════════════════════════════════════════════════
 // AVAILABILITY SUBMISSION
@@ -1773,157 +1802,112 @@ function viewVacations() {
   return wrap;
 }
 // ── SWAPS ──
+// ── SWAPS ──
 function viewSwaps() {
-  const wrap = e("div");
-  wrap.appendChild(div("section-header",[
-    div("page-title",["🔄 חילופי משמרות"]),
-    btn("btn-add","+ בקשת חילוף",()=>{S.showSwapForm=!S.showSwapForm;render();})
-  ]));
+    const wrap = div("page-container");
+    wrap.appendChild(div("page-title", ["🔄 מערכת חילופים ותגבורים"], {style:"margin-bottom:15px"}));
+    const todayStr = today();
+    if (!S.swaps) S.swaps = [];
 
-  // Swap request form
-  if (S.showSwapForm) {
-    const wd = getWeekDates(S.weekOffset);
-    const form = div("card",[div("card-title",["בקשת חילוף / קבלת משמרת"])]);
+    // ==========================================
+    // תצוגת מנהל: אישור בקשות
+    // ==========================================
+    if (isManager()) {
+        const pending = S.swaps.filter(s => s.status === 'pending_approval');
+        const mCard = div("card", [e("h3", {style:"color:#F59E0B; margin-bottom:10px; font-size:15px;"}, `⏳ ממתינים לאישור (${pending.length})`)]);
+        
+        if(pending.length === 0) mCard.appendChild(e("div", {style:"color:#64748B; text-align:center; padding:15px;"}, "אין בקשות שממתינות לאישור."));
+        
+        pending.forEach(s => {
+            const taker = getEmp(s.taker_id);
+            const giver = s.giver_id ? getEmp(s.giver_id) : null;
+            const desc = giver ? `${giver.name.split(" ")[0]} ⬅️ מוסר ל-${taker?.name.split(" ")[0]}` : `➕ ${taker?.name.split(" ")[0]} מבקש להצטרף`;
 
-    // Type selector
-    const typeWrap = e("div",{style:"display:flex;gap:8px;margin-bottom:14px"});
-    const types = [["swap","🔄 חילוף"],["take","➕ קחו משמרת שלי"],["join","👋 הצטרפות"]];
-    types.forEach(([id,lbl]) => {
-      const sel = (S.swapFormData?.type||"swap")===id;
-      typeWrap.appendChild(btn("",lbl,()=>{
-        if(!S.swapFormData) S.swapFormData={type:id,targetDate:"",targetShift:"",targetEmpId:"",note:""};
-        else S.swapFormData.type=id;
-        render();
-      },{style:`flex:1;padding:8px;border-radius:10px;border:1px solid ${sel?"#A855F7aa":"#334155"};background:${sel?"#A855F722":"#1E293B"};color:${sel?"#A855F7":"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`}));
-    });
-    form.appendChild(typeWrap);
+            mCard.appendChild(div("", [
+                div("", [
+                    e("div", {style:"font-weight:800; font-size:14px;"}, desc),
+                    e("div", {style:"font-size:12px; color:#94A3B8; margin-top:2px;"}, `${fmtDate(s.date)} | ${SHIFT_LABELS[s.shift]}`)
+                ], {style:"flex:1"}),
+                div("", [
+                    btn("btn-sm btn-sm-green", "אשר", () => processManagerDecision(s, true)),
+                    btn("btn-sm btn-sm-red", "דחה", () => processManagerDecision(s, false))
+                ], {style:"display:flex; gap:5px;"})
+            ], {style:"display:flex; align-items:center; background:#1E293B; border:1px solid #334155; padding:12px; border-radius:10px; margin-bottom:8px;"}));
+        });
+        wrap.appendChild(mCard);
+    } 
+    // ==========================================
+    // תצוגת עובד: טפסים
+    // ==========================================
+    else {
+        // חלק א': מסירת משמרת
+        const myShifts = [];
+        Object.keys(S.schedule).forEach(d => {
+            if (d >= todayStr) Object.keys(S.schedule[d]).forEach(sh => {
+                if (S.schedule[d][sh].includes(S.user.id)) myShifts.push({date: d, shift: sh});
+            });
+        });
 
-    if (!S.swapFormData) S.swapFormData={type:"swap",targetDate:"",targetShift:"",targetEmpId:"",note:""};
-    const fd = S.swapFormData;
+        const handoverCard = div("card", [e("h3", {style:"color:#3B82F6; margin-bottom:15px; font-size:15px;"}, "📤 מסירת משמרת שלי")]);
+        const shiftSel = e("select", {class: "fi"});
+        myShifts.sort((a,b)=>a.date.localeCompare(b.date)).forEach(s => shiftSel.appendChild(e("option", {value: JSON.stringify(s)}, `${fmtDate(s.date)} - ${SHIFT_LABELS[s.shift]}`)));
+        
+        const empSel = e("select", {class: "fi"});
+        S.employees.filter(e => e.id !== S.user.id && !e.is_deleted).forEach(emp => empSel.appendChild(e("option", {value: emp.id}, emp.name)));
 
-    // My employee selector
-    const myEmpSel = e("select",{class:"fi",style:"margin-bottom:12px",onchange:ev=>{fd.myEmpId=ev.target.value}});
-    myEmpSel.appendChild(e("option",{value:""},"בחר עובד מבקש"));
-    S.employees.forEach(emp=>myEmpSel.appendChild(e("option",{value:emp.id,selected:fd.myEmpId===emp.id?"selected":null},emp.name)));
-    form.appendChild(div("form-col",[e("label",{class:"form-label"},"עובד מבקש"),myEmpSel],{style:"margin-bottom:12px"}));
+        if(myShifts.length > 0) {
+            handoverCard.appendChild(div("form-row", [
+                div("form-col", [e("label", {class:"form-label"}, "איזו משמרת תרצה למסור?"), shiftSel]),
+                div("form-col", [e("label", {class:"form-label"}, "בחר מחליף"), empSel])
+            ], {style:"margin-bottom:12px"}));
+            handoverCard.appendChild(btn("btn-primary", "שלח לאישור מנהל", () => {
+                const sh = JSON.parse(shiftSel.value);
+                submitHandoverRequest(sh.date, sh.shift, empSel.value);
+            }, {style:"width:100%"}));
+        } else {
+            handoverCard.appendChild(e("div", {style:"color:#64748B; text-align:center; padding:10px;"}, "אין לך משמרות עתידיות למסירה."));
+        }
+        wrap.appendChild(handoverCard);
 
-    // Target date + shift
-    form.appendChild(div("form-row",[
-      div("form-col",[
-        e("label",{class:"form-label"},"תאריך משמרת"),
-        e("select",{class:"fi",onchange:ev=>{fd.targetDate=ev.target.value}},
-          [e("option",{value:""},"בחר תאריך"),
-          ...wd.map(d=>{const dt=new Date(d+"T00:00:00");return e("option",{value:d,selected:fd.targetDate===d?"selected":null},DAYS[dt.getDay()]+" "+dt.getDate());})]
-        )
-      ]),
-      div("form-col",[
-        e("label",{class:"form-label"},"משמרת"),
-        e("select",{class:"fi",onchange:ev=>{fd.targetShift=ev.target.value}},
-          [e("option",{value:""},"בחר משמרת"),
-          ...SHIFTS.map(sh=>e("option",{value:sh.id,selected:fd.targetShift===sh.id?"selected":null},sh.label+" ("+sh.start+"–"+sh.end+")"))]
-        )
-      ])
-    ]));
+        // חלק ב': הצטרפות
+        const joinCard = div("card", [e("h3", {style:"color:#10B981; margin-bottom:15px; font-size:15px;"}, "➕ בקשת תגבור/הצטרפות")]);
+        let foundJoin = false;
+        Object.keys(S.schedule).forEach(d => {
+            if (d >= todayStr) Object.keys(S.schedule[d]).forEach(sh => {
+                const emps = S.schedule[d][sh];
+                if (!emps.includes(S.user.id) && emps.length > 0) { // מציג רק משמרות שמאוישות חלקית או שאינו מופיע בהן
+                    foundJoin = true;
+                    joinCard.appendChild(div("", [
+                        div("", [
+                            e("div", {style:"font-weight:800; font-size:13px;"}, `${fmtDate(d)} - ${SHIFT_LABELS[sh]}`),
+                            e("div", {style:"font-size:11px; color:#94A3B8;"}, `משובצים: ${emps.map(id=>getEmp(id)?.name.split(" ")[0]).join(", ")}`)
+                        ], {style:"flex:1"}),
+                        btn("btn-sm btn-sm-blue", "הצטרף", () => handleJoinRequest(d, sh))
+                    ], {style:"display:flex; align-items:center; background:#0F172A; border:1px solid #1E293B; padding:10px; margin-bottom:8px; border-radius:8px;"}));
+                }
+            });
+        });
+        if(!foundJoin) joinCard.appendChild(e("div", {style:"color:#64748B; text-align:center; padding:10px;"}, "אין משמרות זמינות להצטרפות."));
+        wrap.appendChild(joinCard);
+        
+        // חלק ג': סטטוס בקשות שלי (למטה)
+        const myReqs = S.swaps.filter(s => s.giver_id === S.user.id || s.taker_id === S.user.id);
+        if(myReqs.length > 0) {
+             const statusCard = div("card", [e("h3", {style:"color:#E2E8F0; margin-bottom:10px; font-size:14px;"}, "⏳ מצב הבקשות שלי")]);
+             myReqs.slice(0,5).forEach(s => {
+                 const isApp = s.status === "approved";
+                 const isRej = s.status === "rejected";
+                 statusCard.appendChild(div("", [
+                     e("div", {style:"font-size:12px; color:#94A3B8; flex:1;"}, `${fmtDate(s.date)} | ${SHIFT_LABELS[s.shift]}`),
+                     e("span", { class: "status-badge status-" + (isApp ? "approved" : isRej ? "rejected" : "pending") }, isApp ? "אושר" : isRej ? "נדחה" : "ממתין")
+                 ], {style:"display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #0F172A;"}));
+             });
+             wrap.appendChild(statusCard);
+        }
+    }
 
-    // Target employee (for swap)
-    if (fd.type==="swap") {
-      const tEmpSel = e("select",{class:"fi",style:"margin-top:12px",onchange:ev=>{fd.targetEmpId=ev.target.value}});
-      tEmpSel.appendChild(e("option",{value:""},"בחר עובד להחלפה איתו"));
-      S.employees.filter(emp=>emp.id!==fd.myEmpId).forEach(emp=>
-        tEmpSel.appendChild(e("option",{value:emp.id,selected:fd.targetEmpId===emp.id?"selected":null},emp.name))
-      );
-      form.appendChild(div("form-col",[e("label",{class:"form-label",style:"margin-top:12px"},"עובד להחלפה"),tEmpSel],{style:"margin-bottom:12px"}));
-    }
-
-    // Note
-    form.appendChild(div("form-col",[
-      e("label",{class:"form-label"},"הערה"),
-      e("input",{class:"fi",placeholder:"אופציונלי",value:fd.note||"",oninput:ev=>{fd.note=ev.target.value}})
-    ],{style:"margin-bottom:12px"}));
-
-    form.appendChild(div("form-actions",[
-      btn("btn-purple","📤 שלח בקשה",async()=>{
-        if(!fd.targetDate||!fd.targetShift){toast("נא למלא תאריך ומשמרת","err");return;}
-        const {error}=await sb.from("swap_requests").insert({
-          business_id:S.profile.business_id,
-          requester_id:fd.myEmpId||S.user.id,
-          type:fd.type,
-          target_date:fd.targetDate,
-          target_shift:fd.targetShift,
-          target_employee_id:fd.targetEmpId||null,
-          note:fd.note||null,
-          status:"pending_manager"
-        });
-        if(error){toast("שגיאה: "+error.message,"err");return;}
-        await loadSwapRequests();
-        S.showSwapForm=false;
-        S.swapFormData=null;
-        toast("בקשת חילוף נשלחה ✓");
-        render();
-
-        // Email manager
-        const reqEmp = getEmp(fd.myEmpId||S.user.id);
-        const adminEmp = S.employees.find(e=>e.role==="admin");
-        if (adminEmp?.email) {
-          const sh = SHIFT_BY_ID[fd.targetShift];
-          sendEmail("swap_request", adminEmp.email, {
-            requesterName: reqEmp?.name||"עובד",
-            targetDate: fd.targetDate,
-            shiftLabel: sh ? sh.label+" ("+sh.start+"–"+sh.end+")" : fd.targetShift,
-            note: fd.note||""
-          });
-        }
-      },{style:"flex:1"}),
-      btn("btn-sm btn-sm-gray","ביטול",()=>{S.showSwapForm=false;S.swapFormData=null;render();})
-    ]));
-    wrap.appendChild(form);
-  }
-
-
-  const pending = S.swapRequests.filter(s=>s.status==="pending_manager");
-  const rest = S.swapRequests.filter(s=>s.status!=="pending_manager");
-
-  if (pending.length > 0) {
-    const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#A855F7;margin-bottom:12px"},`⏳ ממתין לאישור מנהל (${pending.length})`)]);
-    pending.forEach(sw => {
-      const req = getEmp(sw.requester_id);
-      const typeLabel = sw.type==="swap"?"חילוף":sw.type==="take"?"קבלה":"הצטרפות";
-      card.appendChild(e("div",{class:"swap-card"},[
-        e("div",{style:"font-weight:700;font-size:13px;margin-bottom:6px"},[
-          req?.name||"—",
-          e("span",{class:"swap-type-badge",style:"background:#A855F722;color:#A855F7;border:1px solid #A855F733"},typeLabel)
-        ]),
-        e("div",{style:"font-size:12px;color:#64748B;margin-bottom:8px"},`${SHIFT_LABELS[sw.target_shift]||sw.target_shift} — ${sw.target_date}`),
-        sw.note?e("div",{style:"font-size:11px;color:#475569;margin-bottom:8px"},"💬 "+sw.note):null,
-        div("form-actions",[
-          btn("btn-sm btn-sm-green","אשר",()=>updateSwapStatus(sw.id,"approved")),
-          btn("btn-sm btn-sm-red","דחה",()=>updateSwapStatus(sw.id,"rejected"))
-        ])
-      ]));
-    });
-    wrap.appendChild(card);
-  }
-
-  if (rest.length > 0) {
-    const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:12px"},"היסטוריה")]);
-    rest.slice(0,10).forEach(sw => {
-      const req = getEmp(sw.requester_id);
-      const st = sw.status==="approved"?"approved":sw.status==="rejected"?"rejected":"pending";
-      const label = sw.status==="approved"?"אושר ✓":sw.status==="rejected"?"נדחה ✗":"ממתין";
-      card.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #0F172A"},[
-        e("div",{},[e("div",{style:"font-weight:600;font-size:13px"},req?.name||"—"),e("div",{style:"font-size:11px;color:#64748B"},SHIFT_LABELS[sw.target_shift]+" — "+sw.target_date)]),
-        e("span",{class:"status-badge status-"+st},label)
-      ]));
-    });
-    wrap.appendChild(card);
-  }
-
-  if (S.swapRequests.length===0) {
-    wrap.appendChild(div("card",[e("div",{style:"text-align:center;padding:40px;color:#64748B"},["אין בקשות חילוף"])]));
-  }
-  return wrap;
+    return wrap;
 }
-
 // ── STATS ──
 function viewStats() {
   const wd = getWeekDates(S.weekOffset);
