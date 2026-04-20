@@ -782,25 +782,35 @@ async function saveConstraints(empId, data) {
 // VACATION ACTIONS
 // ══════════════════════════════════════════════════════
 async function addVacation() {
-  const {employeeId,startDate,endDate,reason,type} = S.newVac;
-  if (!employeeId||!startDate||!endDate) { toast("נא למלא כל השדות","err"); return; }
-  if (endDate < startDate) { toast("תאריך סיום לפני התחלה","err"); return; }
-  
-  const {error} = await sb.from("vacations").insert({
-    employee_id: employeeId, 
-    start_date: startDate, 
-    end_date: endDate, 
-    reason: reason || null, 
-    type: type || "vacation", // שמירת סוג הבקשה
+  // 1. בדיקה שהנתונים קיימים ב-State
+  if (!S.newVac.startDate || !S.newVac.endDate) {
+    toast("נא למלא תאריכים", "err");
+    return;
+  }
+
+  const payload = {
+    employee_id: S.user.id,
+    business_id: S.profile.business_id,
+    start_date: S.newVac.startDate,
+    end_date: S.newVac.endDate,
+    type: S.newVac.type || "vacation", // וודא שזה מקבל 'exam'
     status: "pending"
-  });
-  
-  if (error) { toast("שגיאה: "+error.message,"err"); return; }
-  await loadVacations();
-  // איפוס הטופס כולל הסוג
-  S.newVac = {employeeId:"",startDate:"",endDate:"",reason:"",type:"vacation"};
-  S.showAddVac = false;
-  toast("בקשה נרשמה ✓"); render();
+  };
+
+  console.log("שולח בקשה ל-Supabase:", payload);
+
+  const { data, error } = await sb.from("vacations").insert([payload]);
+
+  if (error) {
+    console.error("שגיאת Supabase בשליחה:", error);
+    toast("שגיאה: " + error.message, "err");
+  } else {
+    console.log("הבקשה נשמרה בהצלחה!");
+    toast("בקשה נשלחה לאישור ✓");
+    S.showAddVac = false;
+    await loadVacations(); // טעינה מחדש של הרשימה
+    render();
+  }
 }
 async function editVacation(id, newStart, newEnd, forceStatus) {
   const updateData = { start_date: newStart, end_date: newEnd };
