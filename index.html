@@ -2063,82 +2063,96 @@ function viewEmpView() {
   return wrap;
 }
 function viewEmpAvailForm() {
-  const wrap = div("");
-  
-  // הגדרת בורר שבועות (שבועיים קדימה)
-  if (S.availWeekOffset === undefined) S.availWeekOffset = 1; // ברירת מחדל: שבוע הבא
-  
-  const targetDates = getWeekDates(S.availWeekOffset);
-  const weekLabel = `שבוע ${fmtDate(targetDates[0])} — ${fmtDate(targetDates[6])}`;
+  const wrap = e("div");
+  wrap.appendChild(div("page-title", ["🚫 הגשת אילוצים / חסימות"]));
 
-  // 1. כותרת ובורר שבועות
+  // בד"כ מגישים חסימות לשבוע הבא, לכן Offset מתחיל ב-1 (אלא אם הוגדר אחרת)
+  if (S.empAvailOffset === undefined) S.empAvailOffset = 1; 
+  
+  const wd = getWeekDates(S.empAvailOffset);
+  const weekStart = wd[0];
+
+  // כותרת וכפתורי דפדוף בין שבועות
   wrap.appendChild(div("section-header", [
-    e("div", {}, [
-      e("div", {style:"font-weight:900; font-size:18px"}, "🚫 הגשת חסימות"),
-      e("div", {style:"font-size:13px; color:#3B82F6; font-weight:700"}, weekLabel)
-    ]),
-    div("btn-group", [
-      btn("btn-sm " + (S.availWeekOffset === 1 ? "btn-sm-blue" : "btn-sm-gray"), "שבוע הבא", () => { S.availWeekOffset = 1; render(); }),
-      btn("btn-sm " + (S.availWeekOffset === 2 ? "btn-sm-blue" : "btn-sm-gray"), "שבועיים קדימה", () => { S.availWeekOffset = 2; render(); })
-    ], {style:"display:flex; gap:5px"})
+    e("div", {style:"font-weight:800; font-size:16px"}, `שבוע: ${fmtDate(wd[0])} — ${fmtDate(wd[6])}`),
+    e("div", {style:"display:flex;gap:8px"}, [
+      btn("btn-sm btn-sm-gray", "השבוע הקרוב →", () => { S.empAvailOffset++; render(); }),
+      btn("btn-sm btn-sm-gray", "← חזור", () => { S.empAvailOffset--; render(); })
+    ])
   ]));
 
-  // 2. בדיקת דדליין (רק לשבוע הקרוב, שבוע +2 בדרך כלל פתוח)
-  const isLocked = checkDeadline(S.availWeekOffset); 
-  if (isLocked) {
-    wrap.appendChild(div("", [
-      e("div", {style: "font-weight:800; color:#EF4444; font-size:14px"}, "⚠️ חלון ההגשה לשבוע הקרוב נסגר")
-    ], {style: "text-align:center; padding:10px; background:#EF444415; border-radius:10px; margin-bottom:15px"}));
-  }
+  // ----- הנה התיקון הקריטי למניעת הקריסה! -----
+  // מוודאים שתמיד יש מערך, גם אם הנתונים מהשרת עדיין לא הגיעו
+  const safeAvail = S.availSubmissions || []; 
+  
+  // מסננים רק את החסימות של העובד הנוכחי לשבוע המוצג
+  const myBlocks = safeAvail.filter(a => a.employee_id === S.user.id && wd.includes(a.date));
 
-  // 3. לוח החסימות (הגריד)
-  const grid = div("card", [], {style: "padding: 10px;"});
-  const blockTable = e("table", {style: "width:100%; border-collapse:separate; border-spacing:0 8px;"});
-
-  targetDates.forEach((date) => {
+  const grid = div("card", [], {style:"padding:10px;"});
+  
+  // בניית רשימת הימים
+  wd.forEach(date => {
     const dt = new Date(date + "T00:00:00");
-    const row = e("tr");
-    row.appendChild(e("td", {style: "width:60px;"}, [
-      e("div", {style: "font-weight:800; color:#F1F5F9"}, DAYS[dt.getDay()].slice(0,2)),
-      e("div", {style: "font-size:11px; color:#64748B"}, dt.getDate())
-    ]));
+    const dayRow = div("", [
+      e("div", {style:"font-weight:800; width:90px; font-size:14px; color:#E2E8F0;"}, `${DAYS[dt.getDay()]} ${dt.getDate()}`)
+    ], {style:"display:flex; align-items:center; border-bottom:1px solid #1E293B; padding:12px 0;"});
 
-    const cells = e("td", {style: "display:flex; gap:6px;"});
+    const btns = div("", [], {style:"display:flex; gap:8px; flex:1; justify-content:flex-end;"});
+    
+    // בניית כפתורי המשמרות (בוקר, צהריים, לילה)
     SHIFTS.forEach(sh => {
-      const key = date + "|" + sh.id;
-      const picked = !!S.availDraft[key];
-      cells.appendChild(e("button", {
-        style: `flex:1; min-height:45px; border-radius:10px; border:1px solid ${picked ? "#EF4444" : "#334155"}; 
-                background:${picked ? "#EF444422" : "#0F172A"}; color:${picked ? "#EF4444" : "#94A3B8"}; 
-                font-size:11px; font-weight:700; ${isLocked ? "opacity:0.5; pointer-events:none;" : ""}`,
-        onclick: () => { S.availDraft[key] = !S.availDraft[key]; render(); }
-      }, sh.label));
+      const isBlocked = myBlocks.some(b => b.date === date && b.shift === sh.id);
+      
+      const b = e("button", {
+        class: "cell-emp-btn",
+        style: `flex:1; max-width:80px; padding:8px 0; font-size:12px; font-weight:700; transition:0.2s;
+                background:${isBlocked ? '#EF444422' : '#0F172A'}; 
+                border:1px solid ${isBlocked ? '#EF4444' : '#334155'}; 
+                color:${isBlocked ? '#EF4444' : '#94A3B8'};`,
+        onclick: async (ev) => {
+          // מניעת לחיצה כפולה בזמן שמירה
+          ev.target.disabled = true; 
+          ev.target.style.opacity = "0.5";
+          
+          if (isBlocked) {
+            // אם כבר חסום -> מבטל את החסימה (מוחק מה-DB)
+            const blockToDel = myBlocks.find(b => b.date === date && b.shift === sh.id);
+            if (blockToDel) {
+              await sb.from("availability").delete().eq("id", blockToDel.id);
+            }
+          } else {
+            // אם לא חסום -> שומר חסימה חדשה
+            const payload = {
+              employee_id: S.user.id,
+              business_id: S.profile.business_id,
+              date: date,
+              shift: sh.id,
+              week_start: weekStart
+            };
+            await sb.from("availability").insert([payload]);
+          }
+          
+          // מושך את הנתונים המעודכנים מהשרת ומרענן את המסך
+          await loadAvailability();
+          render();
+        }
+      }, sh.label + (isBlocked ? " 🚫" : ""));
+      
+      btns.appendChild(b);
     });
-    row.appendChild(cells);
-    blockTable.appendChild(row);
+    
+    dayRow.appendChild(btns);
+    grid.appendChild(dayRow);
   });
-  grid.appendChild(blockTable);
+
   wrap.appendChild(grid);
-
-  wrap.appendChild(btn(isLocked ? "btn-sm-gray" : "btn-primary", "📤 שלח חסימות לשבוע זה", isLocked ? null : () => submitAvail(), {style:"width:100%; margin-bottom:25px; padding:15px"}));
-
-  // 4. הצגת היסטוריית חסימות (מה שכבר הוגש)
-  const submitted = S.availSubmissions?.filter(s => s.employee_id === S.user.id);
-  if (submitted && submitted.length > 0) {
-    wrap.appendChild(e("div", {style:"font-weight:800; font-size:14px; color:#94A3B8; margin-bottom:10px"}, "📜 חסימות שהגשת בעבר:"));
-    submitted.sort((a,b) => b.week_start.localeCompare(a.week_start)).forEach(sub => {
-      wrap.appendChild(div("card", [
-        e("div", {style:"font-size:12px; font-weight:700; color:#E2E8F0"}, `לשבוע המתחיל ב-${sub.week_start}`),
-        e("div", {style:"display:flex; flex-wrap:wrap; gap:4px; margin-top:8px"}, 
-          sub.slots.map(sl => e("span", {style:"background:#334155; padding:2px 6px; border-radius:4px; font-size:10px"}, `${DAYS[sl.day]} - ${SHIFT_LABELS[sl.shift]}`))
-        )
-      ], {style:"background:#0F172A; margin-bottom:8px; padding:12px"}));
-    });
-  }
+  
+  wrap.appendChild(e("div", {style:"margin-top:15px; font-size:12px; color:#64748B; text-align:center;"}, 
+    "💡 לחיצה על משמרת תסמן אותה באדום ותודיע למנהל שאת/ה לא יכול/ה לעבוד בה."
+  ));
 
   return wrap;
 }
-
 // פונקציית עזר לבדיקת דדליין
 function checkDeadline(offset) {
   if (offset > 1) return false; // שבועיים קדימה תמיד פתוח
