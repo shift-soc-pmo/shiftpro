@@ -1472,14 +1472,12 @@ function viewEmployees() {
   const wrap = div("");
   wrap.appendChild(div("page-title", ["👥 ניהול צוות עובדים"]));
 
-  // כפתור הוספת עובד חדש
   wrap.appendChild(btn("btn-add", "+ הוסף עובד חדש", () => {
-    S.editingEmp = { name: "", email: "", role: "employee" };
+    S.editingEmp = { name: "", email: "", role: "employee", emp_code: "" };
     S.showEmpModal = true;
     render();
   }, { style: "width:100%; margin-bottom:20px; padding:15px;" }));
 
-  // רשימת העובדים
   const list = div("card-list");
   const activeEmps = S.employees.filter(e => !e.is_deleted);
 
@@ -1487,11 +1485,14 @@ function viewEmployees() {
     const isManager = emp.role === 'admin';
     list.appendChild(div("card", [
       div("", [
-        e("div", { style: "font-weight:800; font-size:16px; color:#F1F5F9" }, [
+        e("div", { style: "font-weight:800; font-size:16px;" }, [
           emp.name,
           isManager ? e("span", { style: "font-size:10px; background:#3B82F6; color:white; padding:2px 6px; border-radius:10px; margin-right:8px" }, "מנהל") : ""
         ]),
-        e("div", { style: "font-size:12px; color:#64748B" }, emp.email)
+        e("div", { style: "font-size:12px; color:#64748B" }, [
+          e("span", {style: "margin-left:10px"}, emp.email),
+          e("span", {style: "color:#3B82F6"}, "קוד: " + (emp.emp_code || "---"))
+        ])
       ], { style: "flex:1" }),
       div("form-actions", [
         btn("btn-sm btn-sm-blue", "✏️", () => { S.editingEmp = { ...emp }; S.showEmpModal = true; render(); }),
@@ -1501,7 +1502,6 @@ function viewEmployees() {
   });
   wrap.appendChild(list);
 
-  // מודאל (חלונית) הוספה/עריכה
   if (S.showEmpModal) {
     const m = S.editingEmp;
     const modal = div("modal-overlay", [
@@ -1514,6 +1514,9 @@ function viewEmployees() {
         e("label", { class: "form-label", style: "margin-top:10px" }, "אימייל"),
         e("input", { class: "fi", value: m.email, oninput: x => m.email = x.target.value, disabled: !!m.id }),
 
+        e("label", { class: "form-label", style: "margin-top:10px" }, "קוד עובד להרשמה"),
+        e("input", { class: "fi", placeholder: "לדוגמה: 1010", value: m.emp_code || "", oninput: x => m.emp_code = x.target.value }),
+
         e("label", { class: "form-label", style: "margin-top:10px" }, "תפקיד במערכת"),
         e("select", { 
           class: "fi", 
@@ -1524,7 +1527,7 @@ function viewEmployees() {
         ]),
 
         div("form-actions", [
-          btn("btn-primary", "שמור", () => saveEmployee(), { style: "flex:1" }),
+          btn("btn-primary", "שמור עובד", () => saveEmployee(), { style: "flex:1" }),
           btn("btn-gray", "ביטול", () => { S.showEmpModal = false; render(); }, { style: "flex:1" })
         ], { style: "margin-top:20px; display:flex; gap:10px" })
       ])
@@ -1538,25 +1541,35 @@ function viewEmployees() {
 // פונקציית שמירה מעודכנת
 async function saveEmployee() {
   const m = S.editingEmp;
-  if (!m.name || !m.email) return toast("נא למלא את כל השדות", "err");
+  if (!m.name || !m.email || !m.emp_code) return toast("נא למלא את כל השדות כולל קוד עובד", "err");
 
+  const payload = {
+    name: m.name,
+    role: m.role,
+    emp_code: m.emp_code,
+    business_id: S.profile.business_id
+  };
+
+  let error;
   if (m.id) {
-    // עדכון קיים
-    const { error } = await sb.from("profiles").update({
-      name: m.name,
-      role: m.role
-    }).eq("id", m.id);
-    if (error) return toast(error.message, "err");
+    // עדכון עובד קיים
+    const res = await sb.from("profiles").update(payload).eq("id", m.id);
+    error = res.error;
   } else {
-    // הוספה חדשה - כאן המערכת תשלח הזמנה או תיצור יוזר לפי הלוגיקה שלך
-    toast("מזמין עובד חדש בתפקיד " + (m.role === 'admin' ? "מנהל" : "עובד"));
-    // ... לוגיקת ההרשמה שלך (auth.signUp) ...
+    // יצירת עובד חדש (Upsert משמש כאן להוספה ראשונית של הפרופיל לפני Auth)
+    payload.email = m.email;
+    const res = await sb.from("profiles").insert([payload]);
+    error = res.error;
   }
 
-  S.showEmpModal = false;
-  await loadEmployees();
-  render();
-  toast("הנתונים נשמרו בהצלחה ✓");
+  if (error) {
+    toast("שגיאה: " + error.message, "err");
+  } else {
+    toast("העובד נשמר בהצלחה ✓");
+    S.showEmpModal = false;
+    await loadEmployees(); // טעינה מחדש של הרשימה
+    render();
+  }
 }
 // ── VACATIONS ──
 function viewVacations() {
