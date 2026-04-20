@@ -922,12 +922,50 @@ async function updateSwapStatus(id, status) {
 // ══════════════════════════════════════════════════════
 // AVAILABILITY SUBMISSION
 // ══════════════════════════════════════════════════════
-async function submitAvailability(empId, weekStart, slots, note) {
-  await sb.from("availability_submissions").upsert({
-    employee_id: empId, business_id: S.profile.business_id,
-    week_start: weekStart, slots, note: note||null
-  }, {onConflict:"employee_id,week_start"});
-  toast("זמינות נשלחה ✓");
+async function submitAvail() {
+  const slots = [];
+  // הופך את הטיוטה (Draft) למערך של אובייקטים לשמירה
+  Object.entries(S.availDraft).forEach(([key, val]) => {
+    if (val) {
+      const [date, shift] = key.split("|");
+      slots.push({ date, shift });
+    }
+  });
+
+  if (slots.length === 0) return toast("לא סומנו חסימות חדשות", "info");
+
+  // שמירה ל-Supabase - טבלת availability
+  // אנחנו מוחקים חסימות ישנות לאותו שבוע ושומרים את החדשות
+  const weekStart = getWeekDates(S.availWeekOffset)[0];
+  
+  try {
+    // 1. מחיקת חסימות קודמות של העובד לשבוע הספציפי הזה
+    await sb.from("availability")
+      .delete()
+      .eq("employee_id", S.user.id)
+      .eq("week_start", weekStart);
+
+    // 2. הכנסת החסימות החדשות
+    const { error } = await sb.from("availability").insert(
+      slots.map(s => ({
+        employee_id: S.user.id,
+        date: s.date,
+        shift: s.shift,
+        week_start: weekStart,
+        business_id: S.profile.business_id
+      }))
+    );
+
+    if (error) throw error;
+
+    toast("החסימות נשלחו ונשמרו בהצלחה ✓");
+    S.availDraft = {}; // איפוס הטיוטה אחרי שליחה
+    await loadAll(S.user); // רענון נתונים
+    render();
+
+  } catch (err) {
+    toast("שגיאה בשמירה: " + err.message, "err");
+  }
 }
 
 // ══════════════════════════════════════════════════════
