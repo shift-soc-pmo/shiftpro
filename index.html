@@ -1641,6 +1641,31 @@ function viewEmployees() {
     render();
   }, { style: "width:100%; margin-bottom:20px; padding:15px;" }));
 
+  // --- כפתורים זמניים לטסטים (אפשר למחוק אח"כ) ---
+  wrap.appendChild(btn("", "🧪 הוסף 5 משתמשי טסט", async () => {
+      if(!confirm("להוסיף 5 עובדים פיקטיביים?")) return;
+      const testUsers = [
+          { id: crypto.randomUUID(), name: "טסט 1 (דני)", email: "test1@soc.com", emp_code: "T001", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
+          { id: crypto.randomUUID(), name: "טסט 2 (רוני)", email: "test2@soc.com", emp_code: "T002", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
+          { id: crypto.randomUUID(), name: "טסט 3 (מיכל)", email: "test3@soc.com", emp_code: "T003", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
+          { id: crypto.randomUUID(), name: "טסט 4 (אלכס)", email: "test4@soc.com", emp_code: "T004", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 },
+          { id: crypto.randomUUID(), name: "טסט 5 (יעל)", email: "test5@soc.com", emp_code: "T005", role: "employee", business_id: S.profile.business_id, is_deleted: false, max_shifts_per_week: 5 }
+      ];
+      await sb.from("profiles").insert(testUsers);
+      toast("5 משתמשי טסט נוספו ✓");
+      await loadEmployees();
+      render();
+  }, { style: "width:100%; margin-bottom:10px; padding:15px; background: #8B5CF6; color: white; border: none; border-radius: 12px; font-weight: bold;" }));
+
+  wrap.appendChild(btn("", "🗑️ נקה משתמשי טסט", async () => {
+      if(!confirm("למחוק את כל משתמשי הטסט לצמיתות?")) return;
+      await sb.from("profiles").delete().like("email", "test%@soc.com");
+      toast("משתמשי הטסט נמחקו ✓");
+      await loadEmployees();
+      render();
+  }, { style: "width:100%; margin-bottom:20px; padding:15px; background: #EF4444; color: white; border: none; border-radius: 12px; font-weight: bold;" }));
+  // --- סוף כפתורים זמניים ---
+
   const list = div("card-list");
   const activeEmps = S.employees.filter(e => !e.is_deleted);
 
@@ -1700,7 +1725,6 @@ function viewEmployees() {
 
   return wrap;
 }
-
 // פונקציית שמירה מעודכנת
 async function saveEmployee() {
   const m = S.editingEmp;
