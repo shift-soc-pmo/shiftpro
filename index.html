@@ -498,7 +498,7 @@ async function loadAll(user){
   S.user = user;
   
   // 1. מושך את נתוני הפרופיל של המשתמש המחובר והעסק שלו
-  const {data:p} = await sb.from("profiles").select("*, business:businesses(*)").eq("id", user.id).single();
+  const {data:p} = await sb.from("profiles").select("*, business:businesses(*)").eq("id", user.id).maybeSingle();
   if(!p){ S.view="login"; render(); return; }
   S.profile = p; 
   S.business = p.business;
