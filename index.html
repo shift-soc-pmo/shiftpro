@@ -404,28 +404,49 @@ function runSmartSchedule() {
   const weekDates = getWeekDates(S.weekOffset);
   const shiftIds = SHIFTS.map(s => s.id);
   const newSched = {};
-  const totalCount = {};
+  
+  const totalCount = {}; 
+  const dailyCount = {}; 
 
   S.employees.forEach(emp => { totalCount[emp.id] = 0; });
 
   weekDates.forEach((dateStr) => {
     newSched[dateStr] = {};
+    dailyCount[dateStr] = {};
+    S.employees.forEach(emp => { dailyCount[dateStr][emp.id] = 0; });
+
     shiftIds.forEach((shiftId) => {
       newSched[dateStr][shiftId] = [];
 
       const scored = S.employees
         .map(emp => {
           let score = 100;
-          // בדיקת חסימה: חופשה או מילואים חוסמים. מבחן לא חוסם.
-          const isBlocked = S.vacations.some(v => 
+          
+          // חריגה ממקסימום משמרות
+          const maxShifts = emp.max_shifts_per_week || 5;
+          if (totalCount[emp.id] >= maxShifts) return null;
+
+          // מניעת משמרת כפולה באותו יום
+          if (dailyCount[dateStr][emp.id] >= 1) return null;
+
+          // בדיקת העדרויות (חופשה/מילואים - מבחן לא חוסם!)
+          const isVacation = S.vacations.some(v => 
             v.employee_id === emp.id && 
             v.status === "approved" && 
-            v.type !== "exam" && // מבחן לא חוסם!
+            v.type !== "exam" && 
             dateStr >= v.start_date && dateStr <= v.end_date
           );
+          if (isVacation) return null;
 
+          // בדיקת חסימות ידניות שהוגשו
+          const isBlocked = S.availSubmissions?.some(a => 
+            a.employee_id === emp.id && 
+            a.date === dateStr && 
+            a.shift === shiftId
+          );
           if (isBlocked) return null;
-          
+
+          // אלגוריתם הוגנות לציון
           score -= totalCount[emp.id] * 20;
           return { emp, score };
         })
@@ -434,16 +455,19 @@ function runSmartSchedule() {
 
       const toAdd = scored.slice(0, 2).map(s => s.emp.id);
       newSched[dateStr][shiftId].push(...toAdd);
-      toAdd.forEach(id => totalCount[id]++);
+      
+      toAdd.forEach(id => {
+         totalCount[id]++;
+         dailyCount[dateStr][id]++;
+      });
     });
   });
 
   S.schedule = newSched;
   saveScheduleToDB();
-  toast("שיבוץ אוטומטי הושלם ✓");
+  toast("שיבוץ אוטומטי חכם הושלם בהצלחה ✓");
   render();
 }
-
 // ══════════════════════════════════════════════════════
 // SUPABASE
 // ══════════════════════════════════════════════════════
@@ -472,16 +496,27 @@ function generateInviteCode(businessId) {
 
 async function loadAll(user){
   S.user = user;
+  
+  // 1. מושך את נתוני הפרופיל של המשתמש המחובר והעסק שלו
   const {data:p} = await sb.from("profiles").select("*, business:businesses(*)").eq("id", user.id).single();
   if(!p){ S.view="login"; render(); return; }
   S.profile = p; 
   S.business = p.business;
   S.empViewId = user.id; 
 
-  // הנה השינוי: הוספנו את loadAvailability() לסוף הרשימה כאן!
-  await Promise.all([loadEmployees(), loadVacations(), loadSchedule(), loadAvailability()]);
+  // 2. השורה הקריטית: טוען את כל הנתונים במקביל כדי שהאפליקציה תעבוד מהר
+  // שים לב שהוספנו כאן בסוף את loadAvailability()
+  await Promise.all([
+    loadEmployees(), 
+    loadVacations(), 
+    loadSchedule(), 
+    loadAvailability() // <--- המשיכה של נתוני ה-🚫
+  ]);
   
+  // 3. ניתוב המסך הראשון (מנהל לבית, עובד למסך האישי שלו)
   S.view = p.role === "employee" ? "empview" : "home";
+  
+  // 4. מצייר את המסך עם כל הנתונים החדשים
   render();
 }
 async function loadEmployees() {
@@ -1246,18 +1281,14 @@ function viewHome() {
 }
 
 // ── SCHEDULE ──
-// ── SCHEDULE ──
-// ── SCHEDULE ──
 function viewSchedule() {
   let wd = getWeekDates(S.weekOffset);
-  // מיון הימים לפי תאריך (מראשון עד שבת)
   wd.sort((a, b) => new Date(a) - new Date(b));
   
   const weekStart = wd[0];
   const isPublished = S.publishedWeeks.has(weekStart);
   const wrap = e("div");
 
-  // --- כותרת וכפתורי ניהול ---
   const hdr = div("section-header", [
     e("div", {}, [
       div("page-title", ["📅 סידור שבועי"]),
@@ -1268,9 +1299,8 @@ function viewSchedule() {
       btn("btn-sm btn-sm-gray", "→", () => { S.weekOffset++; S.selectedCell = null; loadSchedule().then(() => render()); }),
       btn("btn-sm btn-sm-blue", "השבוע", () => { S.weekOffset = 0; S.selectedCell = null; loadSchedule().then(() => render()); }),
       btn("btn-sm btn-sm-gray", "←", () => { S.weekOffset--; S.selectedCell = null; loadSchedule().then(() => render()); }),
-      // כפתור חסימות למנהלים
       isManager() ? btn("btn-sm btn-sm-red", "🚫 חסימות", () => { S.showBlocksModal = true; render(); }) : null,
-      isManager() ? btn("btn-green", "⚡ שיבוץ אוטומטי", runSmartSchedule) : null,
+      isManager() ? btn("btn-green", "⚡ אוטומטי", runSmartSchedule) : null,
       isManager() && !isPublished ? btn("btn-purple", "📢 פרסם", () => { S.showPublishModal = true; render(); }) : null
     ])
   ]);
@@ -1280,7 +1310,6 @@ function viewSchedule() {
   const gridWrap = div("sched-wrap");
   const tbl = e("table", { class: "sched-table" });
   
-  // --- בניית שורת כותרות הימים ---
   const thead = e("thead");
   const hrow = e("tr");
   hrow.appendChild(e("th", { style: "width: 110px;" }, "משמרת")); 
@@ -1298,32 +1327,19 @@ function viewSchedule() {
 
   const tbody = e("tbody");
 
-  // --- שורת העדרויות (חופשות/מילואים) - למנהלים בלבד ---
   if (isManager()) {
     const absenceRow = e("tr");
-    absenceRow.appendChild(e("td", { 
-      style: "color:#F59E0B; font-weight:800; font-size:12px; text-align:right; padding: 10px 15px; border-left: 2px solid #334155; background: rgba(245,158,11,0.05);" 
-    }, "🌴/🎖️ העדרויות"));
+    absenceRow.appendChild(e("td", { style: "color:#F59E0B; font-weight:800; font-size:12px; text-align:right; padding: 10px 15px; border-left: 2px solid #334155; background: rgba(245,158,11,0.05);" }, "🌴/🎖️ העדרויות"));
     
     wd.forEach(date => {
-      // סינון חופשות ומילואים מאושרים (לא כולל מבחנים בשורה זו)
-      const dayAbsences = S.vacations.filter(v => 
-        v.status === "approved" && 
-        v.type !== "exam" && 
-        date >= v.start_date && date <= v.end_date
-      );
-      
+      const dayAbsences = S.vacations.filter(v => v.status === "approved" && v.type !== "exam" && date >= v.start_date && date <= v.end_date);
       const td = e("td", { style: "background: rgba(245, 158, 11, 0.05); border: 1px solid #33415522; padding: 4px; vertical-align: middle; text-align: center;" });
       
       dayAbsences.forEach(v => {
         const emp = getEmp(v.employee_id);
         if (emp) {
           const isReserve = v.type === 'reserve';
-          const icon = isReserve ? '🎖️' : '🌴';
-          const color = isReserve ? '#818CF8' : '#F59E0B';
-          td.appendChild(e("div", { 
-            style: `font-size:10px; color:${color}; font-weight:700; margin-bottom:2px; white-space:nowrap;` 
-          }, `${icon} ${emp.name.split(" ")[0]}`));
+          td.appendChild(e("div", { style: `font-size:10px; color:${isReserve ? '#818CF8' : '#F59E0B'}; font-weight:700; margin-bottom:2px; white-space:nowrap;` }, `${isReserve ? '🎖️' : '🌴'} ${emp.name.split(" ")[0]}`));
         }
       });
       if (dayAbsences.length === 0) td.appendChild(e("div", {style:"color:#334155; font-size:10px"}, "—"));
@@ -1332,12 +1348,9 @@ function viewSchedule() {
     tbody.appendChild(absenceRow);
   }
 
-  // --- בניית שורות המשמרות (בוקר, צהריים, לילה) ---
   SHIFTS.forEach(shift => {
     const row = e("tr");
-    row.appendChild(e("td", { 
-      style: "color:" + shift.color + "; text-align:right; padding: 10px 15px; font-weight: 800; border-left: 2px solid #334155;" 
-    }, [
+    row.appendChild(e("td", { style: "color:" + shift.color + "; text-align:right; padding: 10px 15px; font-weight: 800; border-left: 2px solid #334155;" }, [
       e("div", { style: "font-size:14px" }, shift.label),
       e("div", { style: "font-size:10px;opacity:0.6" }, shift.start + "–" + shift.end)
     ]));
@@ -1365,14 +1378,7 @@ function viewSchedule() {
           if (emp) {
             const col = ec(empIdx(empId));
             const ch = S.customHours[`${date}|${shift.id}|${empId}`];
-            
-            // בדיקה האם יש לעובד מבחן באותו יום (📝)
-            const hasExam = S.vacations.find(v => 
-              v.employee_id === empId && 
-              v.type === "exam" && 
-              v.status === "approved" && 
-              date >= v.start_date && date <= v.end_date
-            );
+            const hasExam = S.vacations.some(v => v.employee_id === empId && v.type === "exam" && v.status === "approved" && date >= v.start_date && date <= v.end_date);
 
             const chip = e("div", {
               class: "emp-chip",
@@ -1395,14 +1401,11 @@ function viewSchedule() {
   gridCard.appendChild(gridWrap);
   wrap.appendChild(gridCard);
 
-  // --- עורך משמרת (מוצג כשלוחצים על תא) ---
   if (S.selectedCell) {
     wrap.appendChild(viewCellEditor(S.selectedCell.date, S.selectedCell.shift));
   }
 
-  // --- מחוון עומס עובדים בתחתית ---
   wrap.appendChild(viewWorkload(wd));
-
   return wrap;
 }
 function viewCellEditor(date, shiftId) {
@@ -1417,22 +1420,16 @@ function viewCellEditor(date, shiftId) {
     const isAssigned = assignedIds.includes(emp.id);
     const locked = S.lockedSlots[date+"|"+shiftId]?.has(emp.id);
     
-    // בדיקת חופשות/מילואים/מבחנים
     const vacationInfo = S.vacations.find(v => v.employee_id === emp.id && v.status === "approved" && date >= v.start_date && date <= v.end_date);
     const isVacation = !!vacationInfo && vacationInfo.type !== 'exam';
     const typeLabel = vacationInfo ? (vacationInfo.type === 'reserve' ? 'במילואים 🎖️' : vacationInfo.type === 'exam' ? 'במבחן 📝' : 'בחופשה 🌴') : '';
 
-    // בדיקת חסימות ידניות (מה שהעובד הגיש השבוע)
-    const isAvailBlocked = S.availSubmissions.some(a => a.employee_id === emp.id && a.date === date && a.shift === shiftId);
-
+    const isAvailBlocked = S.availSubmissions?.some(a => a.employee_id === emp.id && a.date === date && a.shift === shiftId);
     const isUnavailable = isVacation || isAvailBlocked;
 
     const chip = e("button",{
       class:"cell-emp-btn" + (isAssigned ? " assigned" : ""),
-      style:`background:${isAssigned ? col+"33" : isUnavailable ? "#EF444415" : "#0F172A"}; 
-             border:1px solid ${isAssigned ? col : isUnavailable ? "#EF444488" : col+"44"}; 
-             color:${isUnavailable && !isAssigned ? "#EF4444" : col}; 
-             position:relative;`,
+      style:`background:${isAssigned ? col+"33" : isUnavailable ? "#EF444415" : "#0F172A"}; border:1px solid ${isAssigned ? col : isUnavailable ? "#EF444488" : col+"44"}; color:${isUnavailable && !isAssigned ? "#EF4444" : col}; position:relative;`,
       onclick: () => {
         if (!isAssigned && isUnavailable) {
           const reason = isAvailBlocked ? "חסם את המשמרת הזו (🚫)" : typeLabel;
@@ -1450,7 +1447,6 @@ function viewCellEditor(date, shiftId) {
     
     btnWrap.appendChild(chip);
 
-    // (המשך קוד ה-hoursBtn וה-lockBtn נשאר אותו דבר)...
     if (isAssigned) {
       const lockBtn = e("button",{ class:"btn-icon", style:"margin-right:-8px;margin-left:4px", onclick: (ev) => { ev.stopPropagation(); toggleLock(date,shiftId,emp.id); } }, locked?"🔒":"🔓");
       btnWrap.appendChild(lockBtn);
@@ -1483,6 +1479,53 @@ function viewCellEditor(date, shiftId) {
   editor.appendChild(btnWrap);
   return editor;
 }
+ function viewBlocksModal() {
+  const wd = getWeekDates(S.weekOffset);
+  const weekStart = wd[0];
+  const weekEnd = wd[6];
+  
+  const weeklyBlocks = S.availSubmissions?.filter(a => wd.includes(a.date)) || [];
+
+  const modal = div("modal");
+  modal.appendChild(div("modal-header", [
+    div("modal-title", [`🚫 חסימות לשבוע ${fmtDate(weekStart)} — ${fmtDate(weekEnd)}`]),
+    btn("modal-close", "✕", () => { S.showBlocksModal = false; render(); })
+  ]));
+
+  if (weeklyBlocks.length === 0) {
+    modal.appendChild(e("div", { style: "text-align:center; color:#64748B; padding:20px" }, "אין חסימות לשבוע זה."));
+  } else {
+    const blocksByEmp = {};
+    weeklyBlocks.forEach(b => {
+      if (!blocksByEmp[b.employee_id]) blocksByEmp[b.employee_id] = [];
+      blocksByEmp[b.employee_id].push(b);
+    });
+
+    const list = div("");
+    Object.entries(blocksByEmp).forEach(([empId, blocks]) => {
+      const emp = getEmp(empId);
+      if (!emp) return;
+      
+      const empCard = div("card", [
+        e("div", { style: "font-weight:800; font-size:14px; margin-bottom:8px; color:#EF4444" }, emp.name),
+        e("div", { style: "display:flex; flex-wrap:wrap; gap:5px" }, 
+          blocks.map(b => {
+            const dt = new Date(b.date + "T00:00:00");
+            const shiftName = SHIFT_LABELS[b.shift] || b.shift;
+            return e("span", { style: "background:#1E293B; border:1px solid #334155; padding:4px 8px; border-radius:6px; font-size:11px" }, 
+              `${DAYS[dt.getDay()]} - ${shiftName}`
+            );
+          })
+        )
+      ], { style: "background:#0F172A; border:1px solid #1E293B; margin-bottom:10px" });
+      
+      list.appendChild(empCard);
+    });
+    modal.appendChild(list);
+  }
+
+  return div("modal-bg", [modal], { onclick: ev => { if (ev.target.classList.contains("modal-bg")) { S.showBlocksModal = false; render(); } } });
+} 
 function viewWorkload(wd) {
   const counts = {};
   S.employees.forEach(emp => { counts[emp.id] = 0; });
