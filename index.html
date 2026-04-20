@@ -981,6 +981,38 @@ async function submitHandoverRequest(date, shiftId, takerId) {
     toast("הבקשה נשלחה למנהל");
     loadSwaps().then(render);
 }
+  async function submitMutualSwapRequest(myShift, targetShift, partnerId) {
+    const partner = getEmp(partnerId);
+    
+    // בדיקת חסימות לשני העובדים
+    const checkMe = isShiftLegal(S.user.id, targetShift.date, targetShift.shift);
+    const checkPartner = isShiftLegal(partnerId, myShift.date, myShift.shift);
+
+    if (!checkMe.legal) return toast(`חסימה עבורך: ${checkMe.msg}`, "err");
+    if (!checkPartner.legal) return toast(`חסימה עבור ${partner.name}: ${checkPartner.msg}`, "err");
+
+    const { error } = await sb.from("swaps").insert([{
+        business_id: S.profile.business_id,
+        giver_id: S.user.id,
+        taker_id: partnerId,
+        date: myShift.date,
+        shift: myShift.shift,
+        target_date: targetShift.date,
+        target_shift: targetShift.shift,
+        status: 'pending_approval'
+    }]);
+
+    if (!error) {
+        const adminEmp = S.employees.find(e => e.role === "admin");
+        if(adminEmp?.email) {
+            await sendSystemEmail(adminEmp.email, "בקשת החלפה הדדית", "אישור החלפה בסידור", `בקשת החלפה מ-${S.profile.name} ל-${partner.name}.`);
+        }
+        toast("בקשת ההחלפה נשלחה למנהל");
+        loadSwaps().then(render);
+    } else {
+        toast("שגיאה: " + error.message, "err");
+    }
+}
 
 async function handleJoinRequest(date, shiftId) {
     const check = isShiftLegal(S.user.id, date, shiftId);
@@ -1000,12 +1032,23 @@ async function handleJoinRequest(date, shiftId) {
 // --- פעולות מנהל ---
 async function processManagerDecision(swap, isApproved) {
     if (isApproved) {
-        let emps = S.schedule[swap.date][swap.shift];
-        if (swap.giver_id) { 
-            const idx = emps.indexOf(swap.giver_id);
-            if (idx > -1) emps[idx] = swap.taker_id;
-        } else { 
-            if (!emps.includes(swap.taker_id)) emps.push(swap.taker_id);
+        // אם זו החלפה הדדית (יש תאריך יעד)
+        if (swap.target_date) {
+            let empsA = S.schedule[swap.date][swap.shift];
+            const idxA = empsA.indexOf(swap.giver_id);
+            if (idxA > -1) empsA[idxA] = swap.taker_id;
+
+            let empsB = S.schedule[swap.target_date][swap.target_shift];
+            const idxB = empsB.indexOf(swap.taker_id);
+            if (idxB > -1) empsB[idxB] = swap.giver_id;
+        } else {
+            let emps = S.schedule[swap.date][swap.shift];
+            if (swap.giver_id) { // מסירה
+                const idx = emps.indexOf(swap.giver_id);
+                if (idx > -1) emps[idx] = swap.taker_id;
+            } else { // הצטרפות
+                if (!emps.includes(swap.taker_id)) emps.push(swap.taker_id);
+            }
         }
         await saveScheduleToDB();
     }
@@ -1015,7 +1058,7 @@ async function processManagerDecision(swap, isApproved) {
 
     const taker = getEmp(swap.taker_id);
     if(taker?.email) {
-        await sendSystemEmail(taker.email, "עדכון בקשת משמרת", isApproved ? "המשמרת אושרה!" : "הבקשה נדחתה", `בקשתך למשמרת ${SHIFT_LABELS[swap.shift]} ב-${fmtDate(swap.date)} ${isApproved ? 'אושרה ועודכנה בסידור' : 'לא אושרה על ידי המנהל'}.`);
+        await sendSystemEmail(taker.email, "עדכון בקשת משמרת", isApproved ? "המשמרת אושרה!" : "הבקשה נדחתה", `בקשתך למשמרת ב-${fmtDate(swap.date)} ${isApproved ? 'אושרה ועודכנה בסידור' : 'לא אושרה על ידי המנהל'}.`);
     }
 
     toast(isApproved ? "הסידור עודכן!" : "הבקשה נדחתה");
@@ -1801,7 +1844,6 @@ function viewVacations() {
 
   return wrap;
 }
-// ── SWAPS ──
 // ── SWAPS ──
 function viewSwaps() {
     const wrap = div("page-container");
