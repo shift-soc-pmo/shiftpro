@@ -1977,38 +1977,60 @@ function viewEmpView() {
   return wrap;
 }
 function viewEmpAvailForm() {
-    const emp = S.employees.find(e => e.id === S.empViewId);
-    const targetOffset = S.availTargetOffset || 1;
-    const targetDates = getWeekDates(S.weekOffset + targetOffset);
-    const maxBlocks = emp?.max_blocks_per_week ?? 2;
-    const usedBlocks = Object.values(S.availDraft).filter(Boolean).length;
-    const allowedSlots = emp?.allowed_block_slots || {};
+  const container = div("");
+  
+  // 1. בדיקת דדליין (האם עבר זמן ההגשה)
+  const now = new Date();
+  const currentDay = now.getDay(); // 0 (ראשון) עד 6 (שבת)
+  const currentTime = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+  
+  const dDay = S.business?.deadline_day; // היום ששמרת בהגדרות
+  const dTime = S.business?.deadline_time || "20:00"; // השעה ששמרת
+  
+  let isLocked = false;
+  
+  // אם מוגדר יום חסימה (כלומר dDay אינו null או undefined)
+  if (dDay !== null && dDay !== undefined && dDay !== "") {
+    const deadlineDayInt = parseInt(dDay);
+    // חוסם אם היום הנוכחי אחרי יום היעד, או שזה אותו יום ועברנו את השעה
+    if (currentDay > deadlineDayInt || (currentDay === deadlineDayInt && currentTime > dTime)) {
+      isLocked = true;
+    }
+  }
 
-    const wrap = div("avail-container");
-    wrap.appendChild(e("div", {style:`background:${usedBlocks >= maxBlocks ? "#EF444415" : "#10B98115"}; border-radius:16px; padding:15px; margin-bottom:15px; display:flex; justify-content:space-between;`}, [
-        e("div", {}, [e("div", {style:"font-weight:800; color:#F1F5F9;"}, "מכסת חסימות"), e("div", {style:"font-size:11px; color:#94A3B8;"}, `עד ${maxBlocks} בשבוע`)]),
-        e("div", {style:`font-size:20px; font-weight:900; color:${usedBlocks >= maxBlocks ? "#EF4444" : "#10B981"}`}, `${usedBlocks}/${maxBlocks}`)
-    ]));
+  // 2. הצגת הודעת חסימה במידה ונסגר החלון
+  if (isLocked) {
+    container.appendChild(div("", [
+      e("div", {style: "font-size:40px; margin-bottom:10px"}, "⏳"),
+      e("div", {style: "font-weight:900; color:#EF4444; font-size:18px"}, "חלון הגשת החסימות נסגר"),
+      e("div", {style: "font-size:14px; color:#94A3B8; margin-top:5px"}, `המועד האחרון היה יום ${DAYS[dDay]} בשעה ${dTime}`),
+      e("div", {style: "font-size:12px; color:#64748B; margin-top:10px"}, "לשינויים דחופים, נא לפנות למנהל המערכת.")
+    ], {
+      style: "text-align:center; padding:25px; background:#EF444415; border:1px solid #EF444433; border-radius:20px; margin-bottom:20px"
+    }));
+  }
 
-    const grid = div("card");
-    targetDates.forEach((date, di) => {
-        const dt = new Date(date + "T00:00:00");
-        const row = e("div", {style:"display:flex; align-items:center; gap:10px; margin-bottom:10px;"}, [
-            e("div", {style:"width:60px; font-size:12px; font-weight:700;"}, DAYS[dt.getDay()]),
-            div("btn-group", SHIFTS.map(sh => {
-                const key = di + "|" + sh.id;
-                const picked = !!S.availDraft[key];
-                return e("button", {
-                    style: `flex:1; padding:8px; border-radius:8px; border:1px solid ${picked?"#EF4444":"#334155"}; background:${picked?"#EF444422":"#0F172A"}; color:${picked?"#EF4444":"#64748B"}; font-size:11px;`,
-                    onclick: () => { S.availDraft[key] = !S.availDraft[key]; render(); }
-                }, sh.label);
-            }), {style:"display:flex; flex:1; gap:5px;"})
-        ]);
-        grid.appendChild(row);
-    });
-    wrap.appendChild(grid);
-    wrap.appendChild(btn("btn-purple", "📤 שלח חסימות", () => { /* לוגיקת שליחה */ }, {style:"width:100%; padding:15px;"}));
-    return wrap;
+  // 3. כותרת והסבר
+  container.appendChild(e("div", {style: "margin-bottom:15px"}, [
+    e("div", {style: "font-weight:900; font-size:18px"}, "🚫 הגשת חסימות"),
+    e("div", {style: "font-size:13px; color:#64748B"}, "סמן משמרות שבהן אינך יכול לעבוד בשבוע הבא")
+  ]));
+
+  // כאן מגיע הקוד הקיים שלך שמציג את הטבלה/לוח עם המשמרות (WD וכו')
+  // ... (הקוד שמייצר את הריבועים של הימים והמשמרות) ...
+
+  // 4. כפתור השליחה - משתנה בהתאם למצב הנעילה
+  container.appendChild(btn(
+    isLocked ? "btn-disabled" : "btn-primary", 
+    isLocked ? "הגשה חסומה" : "📤 שלח בקשת חסימה", 
+    isLocked ? null : () => submitAvail(), // אם חסום, הלחיצה לא עושה כלום
+    { 
+      style: `width:100%; margin-top:20px; padding:18px; font-weight:800; ${isLocked ? "opacity:0.5; cursor:not-allowed;" : ""}` 
+    }
+  ));
+
+  return container;
+}
 }
 function viewEmpFullSchedule(emp, wd) {
   const container = div("");
@@ -2266,149 +2288,194 @@ function exportScheduleCSV() {
 // SETTINGS VIEW
 // ══════════════════════════════════════════════════════
 function viewSettings() {
-  const wrap = e("div");
-  wrap.appendChild(div("page-title",["⚙️ הגדרות"],{style:"margin-bottom:16px"}));
+  const wrap = e("div");
+  wrap.appendChild(div("page-title", ["⚙️ הגדרות"], { style: "margin-bottom:16px" }));
 
-  // Business settings
-  const bizCard = div("card",[e("div",{class:"card-title"},"🏢 פרטי עסק")]);
-  if (!S.settingsData) S.settingsData = {
-    bizName: S.business?.name||"",
-    morningStart: SHIFTS[0].start, morningEnd: SHIFTS[0].end,
-    afternoonStart: SHIFTS[1].start, afternoonEnd: SHIFTS[1].end,
-    nightStart: SHIFTS[2].start, nightEnd: SHIFTS[2].end,
-    emailNotify: true,
-  };
-  const sd = S.settingsData;
+  // Business settings
+  const bizCard = div("card", [e("div", { class: "card-title" }, "🏢 פרטי עסק")]);
+  if (!S.settingsData) S.settingsData = {
+    bizName: S.business?.name || "",
+    morningStart: SHIFTS[0].start, morningEnd: SHIFTS[0].end,
+    afternoonStart: SHIFTS[1].start, afternoonEnd: SHIFTS[1].end,
+    nightStart: SHIFTS[2].start, nightEnd: SHIFTS[2].end,
+    deadlineDay: S.business?.deadline_day ?? "",
+    deadlineTime: S.business?.deadline_time || "20:00",
+    emailNotify: true,
+  };
+  const sd = S.settingsData;
 
-  bizCard.appendChild(div("form-col",[
-    e("label",{class:"form-label"},"שם העסק"),
-    e("input",{class:"fi",value:sd.bizName,oninput:ev=>{sd.bizName=ev.target.value},style:"margin-bottom:12px"})
-  ],{style:"margin-bottom:12px"}));
+  // שם העסק
+  bizCard.appendChild(div("form-col", [
+    e("label", { class: "form-label" }, "שם העסק"),
+    e("input", { class: "fi", value: sd.bizName, oninput: ev => { sd.bizName = ev.target.value }, style: "margin-bottom:12px" })
+  ]));
 
-  bizCard.appendChild(btn("btn-add","שמור שם עסק",async()=>{
-    if(!sd.bizName.trim()){toast("נא להזין שם","err");return;}
-    await sb.from("businesses").update({name:sd.bizName}).eq("id",S.profile.business_id);
-    S.business.name=sd.bizName;
-    toast("שם עסק עודכן ✓");render();
-  }));
-  wrap.appendChild(bizCard);
+  // --- הוספה: הגדרות מועד סיום הגשה ---
+  const deadlineSection = e("div", { style: "margin-top:15px; padding-top:15px; border-top:1px solid #334155" }, [
+    e("div", { style: "font-weight:700; font-size:13px; color:#3B82F6; margin-bottom:10px" }, "🛡️ אכיפת מועד הגשת חסימות"),
+    div("form-row", [
+      div("form-col", [
+        e("label", { class: "form-label" }, "יום סגירה"),
+        e("select", {
+          class: "fi",
+          onchange: ev => { sd.deadlineDay = ev.target.value }
+        }, [
+          e("option", { value: "" }, "ללא חסימה"),
+          ...DAYS.map((d, i) => e("option", { value: i, selected: sd.deadlineDay == i }, "יום " + d))
+        ])
+      ]),
+      div("form-col", [
+        e("label", { class: "form-label" }, "שעת סגירה"),
+        e("input", {
+          type: "time",
+          class: "fi",
+          value: sd.deadlineTime,
+          oninput: ev => { sd.deadlineTime = ev.target.value }
+        })
+      ])
+    ]),
+    e("div", { style: "font-size:11px; color:#64748B; margin-top:6px" }, "לאחר מועד זה, הכפתור להגשת חסימות ייחסם עבור העובדים.")
+  ]);
+  bizCard.appendChild(deadlineSection);
+  // ------------------------------------
 
-  // Shift hours settings
-  const shiftCard = div("card",[e("div",{class:"card-title"},"🕐 שעות משמרות")]);
-  const shiftDefs = [
-    {id:"morning",label:"בוקר",sk:"morning"},
-    {id:"afternoon",label:"צהריים",sk:"afternoon"},
-    {id:"night",label:"לילה",sk:"night"},
-  ];
-  shiftDefs.forEach(sh=>{
-    shiftCard.appendChild(e("div",{style:"margin-bottom:12px"},[
-      e("div",{style:"font-weight:700;font-size:13px;color:"+SHIFT_BY_ID[sh.id].color+";margin-bottom:6px"},sh.label),
-      div("form-row",[
-        div("form-col",[e("label",{class:"form-label"},"התחלה"),e("input",{class:"fi",type:"time",value:sd[sh.sk+"Start"]||SHIFT_BY_ID[sh.id].start,onchange:ev=>{sd[sh.sk+"Start"]=ev.target.value}})]),
-        div("form-col",[e("label",{class:"form-label"},"סיום"),e("input",{class:"fi",type:"time",value:sd[sh.sk+"End"]||SHIFT_BY_ID[sh.id].end,onchange:ev=>{sd[sh.sk+"End"]=ev.target.value}})])
-      ])
-    ]));
-  });
-  shiftCard.appendChild(btn("btn-add","שמור שעות",()=>{
-    // Validate hours before saving
-    if(sd.morningStart && sd.morningEnd) { SHIFTS[0].start=sd.morningStart; SHIFTS[0].end=sd.morningEnd; }
-    if(sd.afternoonStart && sd.afternoonEnd) { SHIFTS[1].start=sd.afternoonStart; SHIFTS[1].end=sd.afternoonEnd; }
-    if(sd.nightStart && sd.nightEnd) { SHIFTS[2].start=sd.nightStart; SHIFTS[2].end=sd.nightEnd; }
-    toast("שעות עודכנו ✓");render();
-  }));
-  wrap.appendChild(shiftCard);
+  bizCard.appendChild(btn("btn-add", "שמור הגדרות עסק", async () => {
+    if (!sd.bizName.trim()) { toast("נא להזין שם", "err"); return; }
+    
+    // עדכון ב-Supabase כולל השדות החדשים
+    const { error } = await sb.from("businesses").update({
+      name: sd.bizName,
+      deadline_day: sd.deadlineDay === "" ? null : parseInt(sd.deadlineDay),
+      deadline_time: sd.deadlineTime
+    }).eq("id", S.profile.business_id);
 
-  // Export
-  const expCard = div("card",[e("div",{class:"card-title"},"📤 ייצוא סידור")]);
-  expCard.appendChild(e("div",{style:"color:#64748B;font-size:13px;margin-bottom:14px"},"ייצא את הסידור השבועי הנוכחי"));
-  expCard.appendChild(div("form-actions",[
-    btn("btn-green","🖨️ ייצוא PDF / הדפסה",exportSchedulePDF,{style:"flex:1"}),
-    btn("btn-sm btn-sm-blue","📊 ייצוא CSV",exportScheduleCSV,{style:"flex:1"})
-  ]));
-  wrap.appendChild(expCard);
+    if (error) {
+      toast("שגיאה בשמירה: " + error.message, "err");
+    } else {
+      S.business.name = sd.bizName;
+      S.business.deadline_day = sd.deadlineDay === "" ? null : parseInt(sd.deadlineDay);
+      S.business.deadline_time = sd.deadlineTime;
+      toast("הגדרות העסק עודכנו ✓");
+      render();
+    }
+  }, { style: "margin-top:15px" }));
+  
+  wrap.appendChild(bizCard);
 
-  // Email notifications
-  const emailCard = div("card",[e("div",{class:"card-title"},"🔔 התראות")]);
-  emailCard.appendChild(e("div",{style:"background:#F59E0B18;border:1px solid #F59E0B33;border-radius:10px;padding:12px 14px;margin-bottom:12px"},[
-    e("div",{style:"font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:4px"},"📧 התראות אימייל"),
-    e("div",{style:"font-size:12px;color:#94A3B8"},"התראות אימייל דורשות שרת SMTP. ניתן לשלב עם Supabase Edge Functions.")
-  ]));
+  // Shift hours settings
+  const shiftCard = div("card", [e("div", { class: "card-title" }, "🕐 שעות משמרות")]);
+  const shiftDefs = [
+    { id: "morning", label: "בוקר", sk: "morning" },
+    { id: "afternoon", label: "צהריים", sk: "afternoon" },
+    { id: "night", label: "לילה", sk: "night" },
+  ];
+  shiftDefs.forEach(sh => {
+    shiftCard.appendChild(e("div", { style: "margin-bottom: 12px" }, [
+      e("div", { style: "font-weight:700;font-size:13px;color:" + SHIFT_BY_ID[sh.id].color + ";margin-bottom:6px" }, sh.label),
+      div("form-row", [
+        div("form-col", [e("label", { class: "form-label" }, "התחלה"), e("input", { class: "fi", type: "time", value: sd[sh.sk + "Start"] || SHIFT_BY_ID[sh.id].start, onchange: ev => { sd[sh.sk + "Start"] = ev.target.value } })]),
+        div("form-col", [e("label", { class: "form-label" }, "סיום"), e("input", { class: "fi", type: "time", value: sd[sh.sk + "End"] || SHIFT_BY_ID[sh.id].end, onchange: ev => { sd[sh.sk + "End"] = ev.target.value } })])
+      ])
+    ]));
+  });
+  shiftCard.appendChild(btn("btn-add", "שמור שעות", () => {
+    if (sd.morningStart && sd.morningEnd) { SHIFTS[0].start = sd.morningStart; SHIFTS[0].end = sd.morningEnd; }
+    if (sd.afternoonStart && sd.afternoonEnd) { SHIFTS[1].start = sd.afternoonStart; SHIFTS[1].end = sd.afternoonEnd; }
+    if (sd.nightStart && sd.nightEnd) { SHIFTS[2].start = sd.nightStart; SHIFTS[2].end = sd.nightEnd; }
+    toast("שעות עודכנו ✓"); render();
+  }));
+  wrap.appendChild(shiftCard);
 
-  const notifItems = [
-    {id:"notif_publish",label:"פרסום סידור לעובדים",sub:"עובדים מקבלים מייל כשסידור פורסם"},
-    {id:"notif_vac_approved",label:"אישור / דחיית חופשה",sub:"עובד מקבל מייל על תשובת הבקשה"},
-    {id:"notif_swap",label:"בקשת חילוף חדשה",sub:"מנהל מקבל מייל על בקשת חילוף"},
-  ];
-  notifItems.forEach(item=>{
-    const stored = localStorage.getItem(item.id);
-    const isOn = stored === null ? true : stored === "1";
-    emailCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A"},[
-      e("div",{},[
-        e("div",{style:"font-weight:600;font-size:13px;color:#E2E8F0"},item.label),
-        e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},item.sub)
-      ]),
-      e("button",{
-        style:`width:44px;height:24px;border-radius:12px;border:none;background:${isOn?"#10B981":"#334155"};position:relative;cursor:pointer;transition:background 0.2s`,
-        onclick:(ev)=>{
-          const newVal = !isOn;
-          localStorage.setItem(item.id, newVal?"1":"0");
-          ev.currentTarget.style.background = newVal?"#10B981":"#334155";
-          ev.currentTarget.querySelector("span").style.right = newVal?"2px":"20px";
-        }
-      },[e("span",{style:`position:absolute;top:2px;right:${isOn?"2px":"20px"};width:20px;height:20px;border-radius:50%;background:white;transition:right 0.2s`})])
-    ]));
-  });
-  wrap.appendChild(emailCard);
+  // Export
+  const expCard = div("card", [e("div", { class: "card-title" }, "📤 ייצוא סידור")]);
+  expCard.appendChild(e("div", { style: "color:#64748B;font-size:13px;margin-bottom:14px" }, "ייצא את הסידור השבועי הנוכחי"));
+  expCard.appendChild(div("form-actions", [
+    btn("btn-green", "🖨️ ייצוא PDF / הדפסה", exportSchedulePDF, { style: "flex:1" }),
+    btn("btn-sm btn-sm-blue", "📊 ייצוא CSV", exportScheduleCSV, { style: "flex:1" })
+  ]));
+  wrap.appendChild(expCard);
 
-  // PWA install
-  const pwaCard = div("card",[e("div",{class:"card-title"},"📱 התקנה על הטלפון")]);
-  pwaCard.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"התקן את Shift SOC PMO כאפליקציה על מסך הבית שלך"));
+  // Email notifications
+  const emailCard = div("card", [e("div", { class: "card-title" }, "🔔 התראות")]);
+  emailCard.appendChild(e("div", { style: "background:#F59E0B18;border:1px solid #F59E0B33;border-radius:10px;padding:12px 14px;margin-bottom:12px" }, [
+    e("div", { style: "font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:4px" }, "📧 התראות אימייל"),
+    e("div", { style: "font-size:12px;color:#94A3B8" }, "התראות אימייל דורשות שרת SMTP. ניתן לשלב עם Supabase Edge Functions.")
+  ]));
 
-  if (S.pwaPrompt) {
-    pwaCard.appendChild(btn("btn-purple","📱 התקן אפליקציה",async()=>{
-      S.pwaPrompt.prompt();
-      const {outcome}=await S.pwaPrompt.userChoice;
-      if(outcome==="accepted"){S.pwaPrompt=null;toast("אפליקציה הותקנה ✓");}
-      render();
-    },{style:"width:100%"}));
-  } else {
-    pwaCard.appendChild(e("div",{style:"background:#1E3A5F;border-radius:10px;padding:14px"},[
-      e("div",{style:"font-weight:700;font-size:13px;color:#60A5FA;margin-bottom:8px"},"כיצד להתקין:"),
-      e("div",{style:"font-size:12px;color:#94A3B8;line-height:1.8"},[
-        e("div",{},"📱 iPhone: לחץ על שתף ← הוסף למסך הבית"),
-        e("div",{},"🤖 Android: לחץ על תפריט ← הוסף למסך הבית"),
-        e("div",{},"💻 Chrome: לחץ על + בשורת הכתובת")
-      ])
-    ]));
-  }
-  wrap.appendChild(pwaCard);
+  const notifItems = [
+    { id: "notif_publish", label: "פרסום סידור לעובדים", sub: "עובדים מקבלים מייל כשסידור פורסם" },
+    { id: "notif_vac_approved", label: "אישור / דחיית חופשה", sub: "עובד מקבל מייל על תשובת הבקשה" },
+    { id: "notif_swap", label: "בקשת חילוף חדשה", sub: "מנהל מקבל מייל על בקשת חילוף" },
+  ];
+  notifItems.forEach(item => {
+    const stored = localStorage.getItem(item.id);
+    const isOn = stored === null ? true : stored === "1";
+    emailCard.appendChild(e("div", { style: "display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A" }, [
+      e("div", {}, [
+        e("div", { style: "font-weight:600;font-size:13px;color:#E2E8F0" }, item.label),
+        e("div", { style: "font-size:11px;color:#64748B;margin-top:2px" }, item.sub)
+      ]),
+      e("button", {
+        style: `width:44px;height:24px;border-radius:12px;border:none;background:${isOn ? "#10B981" : "#334155"};position:relative;cursor:pointer;transition:background 0.2s`,
+        onclick: (ev) => {
+          const newVal = !isOn;
+          localStorage.setItem(item.id, newVal ? "1" : "0");
+          ev.currentTarget.style.background = newVal ? "#10B981" : "#334155";
+          ev.currentTarget.querySelector("span").style.right = newVal ? "2px" : "20px";
+        }
+      }, [e("span", { style: `position:absolute;top:2px;right:${isOn ? "2px" : "20px"};width:20px;height:20px;border-radius:50%;background:white;transition:right 0.2s` })])
+    ]));
+  });
+  wrap.appendChild(emailCard);
 
-  // Change password
-  const passCard = div("card",[e("div",{class:"card-title"},"🔐 שינוי סיסמה")]);
-  const newPassInp = e("input",{class:"fi",type:"password",placeholder:"סיסמה חדשה (לפחות 6 תווים)",style:"margin-bottom:12px"});
-  const confPassInp = e("input",{class:"fi",type:"password",placeholder:"אשר סיסמה חדשה",style:"margin-bottom:12px"});
-  passCard.appendChild(div("form-col",[e("label",{class:"form-label"},"סיסמה חדשה"),newPassInp],{style:"margin-bottom:10px"}));
-  passCard.appendChild(div("form-col",[e("label",{class:"form-label"},"אישור סיסמה"),confPassInp],{style:"margin-bottom:12px"}));
-  passCard.appendChild(btn("btn-add","🔐 שמור סיסמה חדשה",async()=>{
-    const newPass = newPassInp.value;
-    const confPass = confPassInp.value;
-    if (!newPass || newPass.length < 6) { toast("סיסמה חייבת להיות לפחות 6 תווים","err"); return; }
-    if (newPass !== confPass) { toast("הסיסמאות לא תואמות","err"); return; }
-    const {error} = await sb.auth.updateUser({password: newPass});
-    if (error) { toast("שגיאה: "+error.message,"err"); return; }
-    newPassInp.value=""; confPassInp.value="";
-    toast("סיסמה עודכנה בהצלחה ✓");
-  },{style:"width:100%"}));
-  wrap.appendChild(passCard);
+  // PWA install
+  const pwaCard = div("card", [e("div", { class: "card-title" }, "📱 התקנה על הטלפון")]);
+  pwaCard.appendChild(e("div", { style: "font-size:13px;color:#94A3B8;margin-bottom:12px" }, "התקן את Shift SOC PMO כאפליקציה על מסך הבית שלך"));
 
-  // Danger zone
-  const dangerCard = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#EF4444;margin-bottom:12px"},"⚠️ אזור מסוכן")]);
-  dangerCard.appendChild(btn("btn-sm btn-sm-red","יציאה מהמערכת",handleLogout,{style:"margin-bottom:8px;width:100%"}));
-  wrap.appendChild(dangerCard);
+  if (S.pwaPrompt) {
+    pwaCard.appendChild(btn("btn-purple", "📱 התקן אפליקציה", async () => {
+      S.pwaPrompt.prompt();
+      const { outcome } = await S.pwaPrompt.userChoice;
+      if (outcome === "accepted") { S.pwaPrompt = null; toast("אפליקציה הותקנה ✓"); }
+      render();
+    }, { style: "width:100%" }));
+  } else {
+    pwaCard.appendChild(e("div", { style: "background:#1E3A5F;border-radius:10px;padding:14px" }, [
+      e("div", { style: "font-weight:700;font-size:13px;color:#60A5FA;margin-bottom:8px" }, "כיצד להתקין:"),
+      e("div", { style: "font-size:12px;color:#94A3B8;line-height:1.8" }, [
+        e("div", {}, "📱 iPhone: לחץ על שתף ← הוסף למסך הבית"),
+        e("div", {}, "🤖 Android: לחץ על תפריט ← הוסף למסך הבית"),
+        e("div", {}, "💻 Chrome: לחץ על + בשורת הכתובת")
+      ])
+    ]));
+  }
+  wrap.appendChild(pwaCard);
 
-  return wrap;
+  // Change password
+  const passCard = div("card", [e("div", { class: "card-title" }, "🔐 שינוי סיסמה")]);
+  const newPassInp = e("input", { class: "fi", type: "password", placeholder: "סיסמה חדשה (לפחות 6 תווים)", style: "margin-bottom:12px" });
+  const confPassInp = e("input", { class: "fi", type: "password", placeholder: "אשר סיסמה חדשה", style: "margin-bottom:12px" });
+  passCard.appendChild(div("form-col", [e("label", { class: "form-label" }, "סיסמה חדשה"), newPassInp], { style: "margin-bottom:10px" }));
+  passCard.appendChild(div("form-col", [e("label", { class: "form-label" }, "אישור סיסמה"), confPassInp], { style: "margin-bottom:12px" }));
+  passCard.appendChild(btn("btn-add", "🔐 שמור סיסמה חדשה", async () => {
+    const newPass = newPassInp.value;
+    const confPass = confPassInp.value;
+    if (!newPass || newPass.length < 6) { toast("סיסמה חייבת להיות לפחות 6 תווים", "err"); return; }
+    if (newPass !== confPass) { toast("הסיסמאות לא תואמות", "err"); return; }
+    const { error } = await sb.auth.updateUser({ password: newPass });
+    if (error) { toast("שגיאה: " + error.message, "err"); return; }
+    newPassInp.value = ""; confPassInp.value = "";
+    toast("סיסמה עודכנה בהצלחה ✓");
+  }, { style: "width:100%" }));
+  wrap.appendChild(passCard);
+
+  // Danger zone
+  const dangerCard = div("card", [e("div", { style: "font-weight:700;font-size:14px;color:#EF4444;margin-bottom:12px" }, "⚠️ אזור מסוכן")]);
+  dangerCard.appendChild(btn("btn-sm btn-sm-red", "יציאה מהמערכת", handleLogout, { style: "margin-bottom:8px;width:100%" }));
+  wrap.appendChild(dangerCard);
+
+  return wrap;
 }
-
 // ══════════════════════════════════════════════════════
 // EMPLOYEE VACATION VIEW (self-service)
 // ══════════════════════════════════════════════════════
