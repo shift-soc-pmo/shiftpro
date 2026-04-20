@@ -494,21 +494,33 @@ async function loadEmployees() {
 }
 
 async function loadVacations() {
-  if (!S.profile?.business_id) { S.vacations = []; return; }
   try {
-    // שולף את כל החופשות - בלי לסנן עובדים או שום דבר אחר
-    const { data, error } = await sb.from("vacations").select("*");
-    if (error) {
-      console.error("שגיאה בשליפת חופשות:", error);
-      S.vacations = [];
-      return;
-    }
-    
+    // שליפת כל ההיעדרויות (חופשה, מילואים, מבחן) ללא סינון סוג
+    const { data, error } = await sb
+      .from("vacations")
+      .select("*")
+      .eq("business_id", S.profile.business_id);
+
+    if (error) throw error;
+
+    // עדכון המחסן המקומי
     S.vacations = data || [];
-    console.log("סך הכל בקשות שנטענו (חופשות/מילואים):", S.vacations.length);
-  } catch (err) { 
-    console.error("קריסה כללית בטעינת חופשות:", err); 
-    S.vacations = []; 
+
+    // בדיקת בדיקה ב-Console (תוכל למחוק את זה אחרי שזה יעבוד)
+    console.log("נתוני היעדרויות שנטענו:", S.vacations);
+
+    // בדיקה ספציפית אם יש מבחנים ברשימה
+    const examsCount = S.vacations.filter(v => v.type === "exam").length;
+    if (examsCount > 0) {
+      console.log(`נמצאו ${examsCount} מבחנים במערכת.`);
+    }
+
+    // רינדור מחדש של המסך כדי להציג את השינויים
+    render();
+    
+  } catch (err) {
+    console.error("שגיאה בטעינת היעדרויות:", err.message);
+    toast("שגיאה בטעינת נתונים", "err");
   }
 }
 async function loadSwapRequests() {
