@@ -2514,20 +2514,104 @@ function viewEmpVacations() {
 // ══════════════════════════════════════════════════════
 // ── CALENDAR VIEW ──
 function viewCalendar() {
-  // ... (הקוד הקודם שלך של לוח השנה) ...
-  // בתוך הלופ שבונה את התאים (for let d=1...):
+  const wrap = div("");
   
-  const dayExams = S.vacations.filter(v => v.type === "exam" && v.status === "approved" && dateStr >= v.start_date && dateStr <= v.end_date);
-  
-  dayExams.forEach(v => {
-    const examEmp = getEmp(v.employee_id);
-    if (examEmp) {
-      cell.appendChild(e("div", {
-        style: "font-size:9px; color:#10B981; background:#10B98111; border-radius:4px; padding:1px 4px; margin-top:1px; white-space:nowrap; border:1px solid #10B98133"
-      }, `📝 מבחן: ${examEmp.name.split(" ")[0]}`));
-    }
+  // כותרת הלוח
+  wrap.appendChild(div("page-title", ["📅 לוח שנה חודשי"]));
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const calendarGrid = e("div", {
+    style: "display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; background: #0F172A; padding: 10px; border-radius: 16px; border: 1px solid #1E293B;"
   });
-  // ...
+
+  // כותרות ימים (א'-ש')
+  ["א", "ב", "ג", "ד", "ה", "ו", "ש"].forEach(day => {
+    calendarGrid.appendChild(e("div", {
+      style: "text-align: center; font-weight: 800; color: #64748B; font-size: 12px; padding-bottom: 5px;"
+    }, day));
+  });
+
+  // תאים ריקים לתחילת החודש
+  for (let i = 0; i < firstDay; i++) {
+    calendarGrid.appendChild(div(""));
+  }
+
+  // יצירת ימי החודש
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const isToday = dateStr === today();
+
+    const cell = e("div", {
+      style: `min-height: 80px; background: ${isToday ? "#1E3A5F33" : "#1E293B55"}; border: 1px solid ${isToday ? "#3B82F6" : "#334155"}; border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 4px; overflow: hidden;`
+    }, [
+      e("div", { style: `font-size: 12px; font-weight: 800; color: ${isToday ? "#3B82F6" : "#94A3B8"};` }, d)
+    ]);
+
+    // --- הצגת משמרות משובצות ---
+    const daySched = S.schedule[dateStr];
+    if (daySched) {
+      Object.entries(daySched).forEach(([shiftId, empIds]) => {
+        const sh = SHIFTS.find(s => s.id === shiftId);
+        if (empIds.length > 0 && sh) {
+          cell.appendChild(e("div", {
+            style: `font-size: 9px; background: ${sh.color}22; color: ${sh.color}; border: 1px solid ${sh.color}44; border-radius: 4px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`
+          }, `${sh.label}: ${empIds.length}`));
+        }
+      });
+    }
+
+    // --- הצגת חופשות ומילואים (חוסמים) ---
+    const dayOffs = S.vacations.filter(v => 
+      v.status === "approved" && 
+      v.type !== "exam" && 
+      dateStr >= v.start_date && dateStr <= v.end_date
+    );
+
+    dayOffs.forEach(v => {
+      const emp = getEmp(v.employee_id);
+      if (emp) {
+        const icon = v.type === "reserve" ? "🎖️" : "🌴";
+        cell.appendChild(e("div", {
+          style: "font-size: 9px; color: #EF4444; background: #EF444411; border-radius: 4px; padding: 1px 4px; white-space: nowrap;"
+        }, `${icon} ${emp.name.split(" ")[0]}`));
+      }
+    });
+
+    // --- הצגת מבחנים (לא חוסמים - האופציה החדשה) ---
+    const dayExams = S.vacations.filter(v => 
+      v.type === "exam" && 
+      v.status === "approved" && 
+      dateStr >= v.start_date && dateStr <= v.end_date
+    );
+
+    dayExams.forEach(v => {
+      const examEmp = getEmp(v.employee_id);
+      if (examEmp) {
+        cell.appendChild(e("div", {
+          style: "font-size: 9px; color: #10B981; background: #10B98111; border-radius: 4px; padding: 1px 4px; margin-top: 1px; white-space: nowrap; border: 1px solid #10B98133;"
+        }, `📝 מבחן: ${examEmp.name.split(" ")[0]}`));
+      }
+    });
+
+    calendarGrid.appendChild(cell);
+  }
+
+  wrap.appendChild(calendarGrid);
+
+  // מקרא קצר למטה
+  wrap.appendChild(e("div", { style: "margin-top: 15px; display: flex; gap: 15px; justify-content: center; font-size: 11px; color: #64748B;" }, [
+    e("span", {}, "🌴 חופשה"),
+    e("span", {}, "🎖️ מילואים"),
+    e("span", { style: "color: #10B981; font-weight: bold;" }, "📝 מבחן (לא חוסם)")
+  ]));
+
+  return wrap;
 }
 // ══════════════════════════════════════════════════════
 // RENDER
