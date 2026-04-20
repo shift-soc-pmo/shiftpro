@@ -2089,7 +2089,7 @@ function viewEmpFullSchedule(emp, currentWd) {
   wd.forEach(date => {
     const dt = new Date(date + "T00:00:00");
     const isToday = date === today();
-    // תאריך מלא בפורמט: יום ראשון 20/04/2026
+    // תאריך מלא
     const fullDateLabel = dt.toLocaleDateString("he-IL", {day:"2-digit", month:"2-digit", year:"2-digit"});
 
     const dayCard = e("div", {
@@ -2102,13 +2102,20 @@ function viewEmpFullSchedule(emp, currentWd) {
       ]),
       e("div", {style: "padding: 8px; display: flex; flex-direction: column; gap: 10px;"}, 
         SHIFTS.map(sh => {
-          const empIds = S.schedule[date]?.[sh.id] || [];
-          const isMe = empIds.includes(emp.id);
+          // כאן הגדרנו את המשתנה ids - שים לב שזה תואם לשימוש בהמשך
+          const ids = S.schedule[date]?.[sh.id] || [];
+          const isMe = ids.includes(emp.id);
+          
           return e("div", {
             style: `padding: 8px; border-radius: 12px; background: ${isMe ? sh.color + "22" : "transparent"}; border: 1px solid ${isMe ? sh.color + "44" : "transparent"};`
           }, [
             e("div", {style: `font-size: 10px; font-weight: 800; color: ${sh.color}; margin-bottom: 4px;`}, sh.label),
-            div("", ids.length > 0 ? ids.map(id => e("div", {style: `font-size: 11px; color: ${id === emp.id ? "#FFF" : "#94A3B8"}; font-weight: ${id === emp.id ? "900" : "500"}`}, (id === emp.id ? "⭐ " : "") + getEmp(id)?.name.split(" ")[0])) : [e("div", {style: "font-size: 10px; color: #334155;"}, "—")])
+            div("", ids.length > 0 ? ids.map(id => {
+               const shiftEmp = getEmp(id);
+               return e("div", {
+                 style: `font-size: 11px; color: ${id === emp.id ? "#FFF" : "#94A3B8"}; font-weight: ${id === emp.id ? "900" : "500"}`
+               }, (id === emp.id ? "⭐ " : "") + (shiftEmp ? shiftEmp.name.split(" ")[0] : "עובד"));
+            }) : [e("div", {style: "font-size: 10px; color: #334155;"}, "—")])
           ]);
         })
       )
