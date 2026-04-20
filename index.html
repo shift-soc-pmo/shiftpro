@@ -476,13 +476,11 @@ async function loadAll(user){
   if(!p){ S.view="login"; render(); return; }
   S.profile = p; 
   S.business = p.business;
-  
-  // הגדרת ID ברירת מחדל לתצוגת עובד
   S.empViewId = user.id; 
 
-  await Promise.all([loadEmployees(), loadVacations(), loadSchedule()]);
+  // הנה השינוי: הוספנו את loadAvailability() לסוף הרשימה כאן!
+  await Promise.all([loadEmployees(), loadVacations(), loadSchedule(), loadAvailability()]);
   
-  // אם נכנס מנהל, הוא הולך לבית. אם עובד, לדשבורד שלו.
   S.view = p.role === "employee" ? "empview" : "home";
   render();
 }
@@ -524,6 +522,18 @@ async function loadVacations() {
     toast("שגיאה בטעינת נתונים", "err");
   }
 }
+async function loadAvailability() {
+  if (!S.profile?.business_id) return;
+  
+  // מושך מ-Supabase את כל החסימות של העסק שלך
+  const { data, error } = await sb.from("availability")
+    .select("*")
+    .eq("business_id", S.profile.business_id);
+  
+  if (!error && data) {
+    S.availSubmissions = data; // שומר את זה בזיכרון של האפליקציה
+  }
+}  
 async function loadSwapRequests() {
   if (!S.profile?.business_id) return;
   const { data } = await sb.from("swap_requests").select("*")
@@ -1388,51 +1398,46 @@ function viewCellEditor(date, shiftId) {
     const isAssigned = assignedIds.includes(emp.id);
     const locked = S.lockedSlots[date+"|"+shiftId]?.has(emp.id);
     
-    // בדיקה האם העובד בחופשה או מילואים בתאריך הזה
-    const vacationInfo = S.vacations.find(v => 
-      v.employee_id === emp.id && 
-      v.status === "approved" && 
-      date >= v.start_date && date <= v.end_date
-    );
+    // בדיקת חופשות/מילואים/מבחנים
+    const vacationInfo = S.vacations.find(v => v.employee_id === emp.id && v.status === "approved" && date >= v.start_date && date <= v.end_date);
+    const isVacation = !!vacationInfo && vacationInfo.type !== 'exam';
+    const typeLabel = vacationInfo ? (vacationInfo.type === 'reserve' ? 'במילואים 🎖️' : vacationInfo.type === 'exam' ? 'במבחן 📝' : 'בחופשה 🌴') : '';
 
-    const isUnavailable = !!vacationInfo;
-    const typeLabel = vacationInfo ? (vacationInfo.type === 'reserve' ? 'במילואים 🎖️' : 'בחופשה 🌴') : '';
+    // בדיקת חסימות ידניות (מה שהעובד הגיש השבוע)
+    const isAvailBlocked = S.availSubmissions.some(a => a.employee_id === emp.id && a.date === date && a.shift === shiftId);
+
+    const isUnavailable = isVacation || isAvailBlocked;
 
     const chip = e("button",{
       class:"cell-emp-btn" + (isAssigned ? " assigned" : ""),
-      style:`background:${isAssigned ? col+"33" : isUnavailable ? "#F59E0B15" : "#0F172A"}; 
-             border:1px solid ${isAssigned ? col : isUnavailable ? "#F59E0B88" : col+"44"}; 
-             color:${isUnavailable && !isAssigned ? "#F59E0B" : col}; 
+      style:`background:${isAssigned ? col+"33" : isUnavailable ? "#EF444415" : "#0F172A"}; 
+             border:1px solid ${isAssigned ? col : isUnavailable ? "#EF444488" : col+"44"}; 
+             color:${isUnavailable && !isAssigned ? "#EF4444" : col}; 
              position:relative;`,
       onclick: () => {
         if (!isAssigned && isUnavailable) {
-          if (!confirm(`שים לב: ${emp.name} ${typeLabel}.\nהאם לשבץ בכל זאת?`)) return;
+          const reason = isAvailBlocked ? "חסם את המשמרת הזו (🚫)" : typeLabel;
+          if (!confirm(`שים לב: ${emp.name} ${reason}.\nהאם לשבץ בכל זאת?`)) return;
         }
         toggleCellEmp(date, shiftId, emp.id);
       }
     },[
-      e("span",{style:`width:7px;height:7px;border-radius:50%;background:${isUnavailable ? "#F59E0B" : col}`},""),
+      e("span",{style:`width:7px;height:7px;border-radius:50%;background:${isUnavailable ? "#EF4444" : col}`},""),
       e("span",{}, emp.name),
-      isUnavailable ? e("span",{style:"font-size:10px;margin-right:4px"}, vacationInfo.type === 'reserve' ? '🎖️' : '🌴') : null,
+      vacationInfo ? e("span",{style:"font-size:10px;margin-right:4px"}, vacationInfo.type === 'reserve' ? '🎖️' : vacationInfo.type === 'exam' ? '📝' : '🌴') : null,
+      isAvailBlocked && !vacationInfo ? e("span",{style:"font-size:10px;margin-right:4px"}, '🚫') : null,
       locked ? e("span",{},"🔒") : null
     ]);
     
     btnWrap.appendChild(chip);
 
-    // כפתורי עריכה נוספים (נעילה/שעות) רק אם העובד משובץ
+    // (המשך קוד ה-hoursBtn וה-lockBtn נשאר אותו דבר)...
     if (isAssigned) {
-      const lockBtn = e("button",{
-        class:"btn-icon",
-        style:"margin-right:-8px;margin-left:4px",
-        onclick: (ev) => { ev.stopPropagation(); toggleLock(date,shiftId,emp.id); }
-      }, locked?"🔒":"🔓");
+      const lockBtn = e("button",{ class:"btn-icon", style:"margin-right:-8px;margin-left:4px", onclick: (ev) => { ev.stopPropagation(); toggleLock(date,shiftId,emp.id); } }, locked?"🔒":"🔓");
       btnWrap.appendChild(lockBtn);
 
       const chKey = date+"|"+shiftId+"|"+emp.id;
-      const hoursBtn = e("button",{
-        class:"btn-icon",
-        style:"margin-right:-8px;margin-left:4px;font-size:12px;color:#94A3B8",
-        onclick: (ev) => {
+      const hoursBtn = e("button",{ class:"btn-icon", style:"margin-right:-8px;margin-left:4px;font-size:12px;color:#94A3B8", onclick: (ev) => {
           ev.stopPropagation();
           const sh = SHIFT_BY_ID[shiftId];
           const existingCh = S.customHours[chKey];
@@ -1442,10 +1447,7 @@ function viewCellEditor(date, shiftId) {
           const editorId = "hours-editor-"+chKey.replace(/[|]/g,"_");
           if (document.getElementById(editorId)) { document.getElementById(editorId).remove(); return; }
           
-          const editorDiv = e("div",{
-            id: editorId,
-            style:"display:inline-flex;align-items:center;gap:6px;background:#0F172A;border:1px solid #334155;border-radius:8px;padding:6px 10px;margin:4px"
-          },[
+          const editorDiv = e("div",{ id: editorId, style:"display:inline-flex;align-items:center;gap:6px;background:#0F172A;border:1px solid #334155;border-radius:8px;padding:6px 10px;margin:4px" },[
             e("input",{type:"time",value:curStart,style:"background:#1E293B;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:12px;padding:3px 6px;font-family:inherit",id:"ch-s-"+editorId}),
             e("input",{type:"time",value:curEnd,style:"background:#1E293B;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:12px;padding:3px 6px;font-family:inherit",id:"ch-e-"+editorId}),
             btn("btn-sm-green","שמור",()=>{
@@ -1462,7 +1464,6 @@ function viewCellEditor(date, shiftId) {
   editor.appendChild(btnWrap);
   return editor;
 }
-
 function viewWorkload(wd) {
   const counts = {};
   S.employees.forEach(emp => { counts[emp.id] = 0; });
@@ -2758,6 +2759,7 @@ function render() {
     // Modals
     if(S.constraintsEmp) app.appendChild(viewConstraintsModal());
     if(S.showPublishModal) app.appendChild(viewPublishModal());
+    if(S.showBlocksModal) app.appendChild(viewBlocksModal());
   }
 
   // Mobile bottom nav (Fix: 4-5 buttons max, better touch targets)
