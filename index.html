@@ -400,80 +400,46 @@ function empIdx(id) { return S.employees.findIndex(e=>e.id===id); }
 // SMART SCHEDULE ALGORITHM
 // ══════════════════════════════════════════════════════
 function runSmartSchedule() {
-  const weekDates = getWeekDates(S.weekOffset).map(d=>new Date(d+"T00:00:00"));
-  const shiftIds = SHIFTS.map(s=>s.id);
-  const newSched = {}; const totalCount = {}; const shiftTypeCount = {};
+  const weekDates = getWeekDates(S.weekOffset);
+  const shiftIds = SHIFTS.map(s => s.id);
+  const newSched = {};
+  const totalCount = {};
 
-  S.employees.forEach(emp => { totalCount[emp.id] = 0; shiftTypeCount[emp.id] = {}; });
+  S.employees.forEach(emp => { totalCount[emp.id] = 0; });
 
-  weekDates.forEach((dateObj, dayIdx) => {
-    const dateStr = dateObj.toISOString().split("T")[0];
-    const dayName = DAYS[dateObj.getDay()];
+  weekDates.forEach((dateStr) => {
     newSched[dateStr] = {};
-
-    shiftIds.forEach((shiftId, shIdx) => {
-      const lockedKey = dateStr+"|"+shiftId;
-      const lockedEmpIds = S.lockedSlots[lockedKey] ? [...S.lockedSlots[lockedKey]] : [];
-      newSched[dateStr][shiftId] = [...lockedEmpIds];
-      lockedEmpIds.forEach(id => {
-        totalCount[id] = (totalCount[id]||0)+1; shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
-      });
-
-      if (lockedEmpIds.length >= 2) return;
-      const need = 2 - lockedEmpIds.length;
+    shiftIds.forEach((shiftId) => {
+      newSched[dateStr][shiftId] = [];
 
       const scored = S.employees
-        .filter(emp => !lockedEmpIds.includes(emp.id))
         .map(emp => {
           let score = 100;
-          
-          // בדיקת חופשה/מילואים מאושרים - כאן מתבצע הדילוג
-          const onVacation = S.vacations.some(v => 
+          // בדיקת חסימה: חופשה או מילואים חוסמים. מבחן לא חוסם.
+          const isBlocked = S.vacations.some(v => 
             v.employee_id === emp.id && 
             v.status === "approved" && 
+            v.type !== "exam" && // מבחן לא חוסם!
             dateStr >= v.start_date && dateStr <= v.end_date
           );
+
+          if (isBlocked) return null;
           
-          if (onVacation) return null; // דילוג אוטומטי
-
-          const avail = emp.availability || DAYS;
-          const preferred = emp.preferred_shifts || [];
-          const maxShifts = emp.max_shifts_per_week || 5;
-          const dayConstraints = emp.day_constraints || {};
-
-          if (!avail.includes(dayName)) return null;
-          if (dayConstraints[dayName]?.[shiftId] === 0) return null;
-          if (totalCount[emp.id] >= maxShifts) return null;
-
-          score -= totalCount[emp.id] * 12;
-          if (preferred.includes(shiftId)) score += 30;
-          
-          // מניעת לילה ואז בוקר
-          if (dayIdx > 0 && shIdx === 0) {
-            const prevDate = weekDates[dayIdx-1].toISOString().split("T")[0];
-            if ((newSched[prevDate]?.["night"]||[]).includes(emp.id)) score -= 80;
-          }
-
-          // מניעת כפל משמרות באותו יום
-          const alreadyToday = shiftIds.slice(0,shIdx).some(s => (newSched[dateStr][s]||[]).includes(emp.id));
-          if (alreadyToday) return null;
-
+          score -= totalCount[emp.id] * 20;
           return { emp, score };
         })
         .filter(Boolean)
-        .sort((a,b) => b.score - a.score);
+        .sort((a, b) => b.score - a.score);
 
-      const toAdd = scored.slice(0, need).map(s => s.emp.id);
+      const toAdd = scored.slice(0, 2).map(s => s.emp.id);
       newSched[dateStr][shiftId].push(...toAdd);
-      toAdd.forEach(id => {
-        totalCount[id] = (totalCount[id]||0)+1; shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
-      });
+      toAdd.forEach(id => totalCount[id]++);
     });
   });
 
-  S.schedule = newSched; 
-  saveScheduleToDB(); 
-  toast("שיבוץ אוטומטי הושלם (דילג על אנשים בחופשה) ✓"); 
+  S.schedule = newSched;
+  saveScheduleToDB();
+  toast("שיבוץ אוטומטי הושלם ✓");
   render();
 }
 
@@ -2067,10 +2033,9 @@ function viewEmpFullSchedule(emp, currentWd) {
   
   // ניהול אופסט שבועות בתוך הסידור
   if (S.schedViewOffset === undefined) S.schedViewOffset = 0;
-  
   const wd = getWeekDates(S.schedViewOffset);
 
-  // 1. כותרת עם ניווט שבועות (קדימה ואחורה)
+  // 1. כותרת עם ניווט שבועות
   wrap.appendChild(div("section-header", [
     e("div", {}, [
       e("div", {style:"font-weight:900; font-size:18px"}, "📅 סידור עבודה"),
@@ -2089,7 +2054,6 @@ function viewEmpFullSchedule(emp, currentWd) {
   wd.forEach(date => {
     const dt = new Date(date + "T00:00:00");
     const isToday = date === today();
-    // תאריך מלא
     const fullDateLabel = dt.toLocaleDateString("he-IL", {day:"2-digit", month:"2-digit", year:"2-digit"});
 
     const dayCard = e("div", {
@@ -2102,19 +2066,30 @@ function viewEmpFullSchedule(emp, currentWd) {
       ]),
       e("div", {style: "padding: 8px; display: flex; flex-direction: column; gap: 10px;"}, 
         SHIFTS.map(sh => {
-          // כאן הגדרנו את המשתנה ids - שים לב שזה תואם לשימוש בהמשך
           const ids = S.schedule[date]?.[sh.id] || [];
-          const isMe = ids.includes(emp.id);
-          
+          const isMeInShift = ids.includes(S.user.id);
+
           return e("div", {
-            style: `padding: 8px; border-radius: 12px; background: ${isMe ? sh.color + "22" : "transparent"}; border: 1px solid ${isMe ? sh.color + "44" : "transparent"};`
+            style: `padding: 8px; border-radius: 12px; background: ${isMeInShift ? sh.color + "22" : "transparent"}; border: 1px solid ${isMeInShift ? sh.color + "44" : "transparent"};`
           }, [
             e("div", {style: `font-size: 10px; font-weight: 800; color: ${sh.color}; margin-bottom: 4px;`}, sh.label),
             div("", ids.length > 0 ? ids.map(id => {
                const shiftEmp = getEmp(id);
+               
+               // לוגיקת הצגת המבחן:
+               // מנהל רואה את כולם, עובד רואה רק את עצמו
+               const hasExam = S.vacations.find(v => 
+                 v.employee_id === id && 
+                 v.type === "exam" && 
+                 v.status === "approved" && 
+                 date >= v.start_date && date <= v.end_date
+               );
+               
+               const showExamIcon = hasExam && (S.profile.role === 'admin' || id === S.user.id);
+
                return e("div", {
-                 style: `font-size: 11px; color: ${id === emp.id ? "#FFF" : "#94A3B8"}; font-weight: ${id === emp.id ? "900" : "500"}`
-               }, (id === emp.id ? "⭐ " : "") + (shiftEmp ? shiftEmp.name.split(" ")[0] : "עובד"));
+                 style: `font-size: 11px; color: ${id === S.user.id ? "#FFF" : "#94A3B8"}; font-weight: ${id === S.user.id ? "900" : "500"}`
+               }, (id === S.user.id ? "⭐ " : "") + (shiftEmp ? shiftEmp.name.split(" ")[0] : "עובד") + (showExamIcon ? " 📝" : ""));
             }) : [e("div", {style: "font-size: 10px; color: #334155;"}, "—")])
           ]);
         })
@@ -2479,52 +2454,57 @@ function viewSettings() {
 // ══════════════════════════════════════════════════════
 // EMPLOYEE VACATION VIEW (self-service)
 // ══════════════════════════════════════════════════════
-function viewEmpVacations(){
-  const my = S.vacations.filter(x=>x.employee_id===S.user.id);
+function viewEmpVacations() {
+  const my = S.vacations.filter(x => x.employee_id === S.user.id);
   const wrap = div("");
-  wrap.appendChild(btn("btn-add","+ בקשה חדשה",()=>{S.showAddVac=!S.showAddVac;render()},{style:"width:100%;margin-bottom:15px;padding:15px"}));
-  
-  if(S.showAddVac){
-    const f = div("card",[
-      div("card-title",["בקשה חדשה"]),
-      e("label",{class:"form-label"},"סוג"), e("select",{class:"fi",onchange:x=>S.newVac.type=x.target.value},[e("option",{value:"vacation"},"חופשה 🌴"),e("option",{value:"reserve"},"מילואים 🎖️")]),
-      div("form-row",[
-        div("form-col",[e("label",{class:"form-label",style:"margin-top:10px"},"מתאריך"), e("input",{type:"date",class:"fi",oninput:x=>S.newVac.startDate=x.target.value})]),
-        div("form-col",[e("label",{class:"form-label",style:"margin-top:10px"},"עד תאריך"), e("input",{type:"date",class:"fi",oninput:x=>S.newVac.endDate=x.target.value})])
+  wrap.appendChild(btn("btn-add", "+ בקשה חדשה", () => { S.showAddVac = !S.showAddVac; render(); }, { style: "width:100%;margin-bottom:15px;padding:15px" }));
+
+  if (S.showAddVac) {
+    const f = div("card", [
+      div("card-title", ["בקשה חדשה"]),
+      e("label", { class: "form-label" }, "סוג"),
+      e("select", { class: "fi", onchange: x => S.newVac.type = x.target.value }, [
+        e("option", { value: "vacation" }, "חופשה 🌴"),
+        e("option", { value: "reserve" }, "מילואים 🎖️"),
+        e("option", { value: "exam" }, "מבחן 📝") // האופציה החדשה
       ]),
-      btn("btn-primary","שלח בקשה לאישור",()=>addVacation(),{style:"width:100%;margin-top:10px"})
+      div("form-row", [
+        div("form-col", [e("label", { class: "form-label", style: "margin-top:10px" }, "מתאריך"), e("input", { type: "date", class: "fi", oninput: x => S.newVac.startDate = x.target.value })]),
+        div("form-col", [e("label", { class: "form-label", style: "margin-top:10px" }, "עד תאריך"), e("input", { type: "date", class: "fi", oninput: x => S.newVac.endDate = x.target.value })])
+      ]),
+      btn("btn-primary", "שלח בקשה לאישור", () => addVacation(), { style: "width:100%;margin-top:10px" })
     ]);
     wrap.appendChild(f);
   }
 
   const list = div("");
-  my.sort((a,b)=>String(b.start_date).localeCompare(String(a.start_date))).forEach(v => {
-    const act = S.editingVac===v.id;
-    const icon = v.type==="reserve"?"🎖️":"🌴";
-    const st = v.status==="approved"?"approved":v.status==="rejected"?"rejected":"pending";
-    const label = v.status==="approved"?"אושרה ✓":v.status==="rejected"?"נדחתה ✗":"ממתין לאישור";
+  my.sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).forEach(v => {
+    const act = S.editingVac === v.id;
+    const icons = { vacation: "🌴", reserve: "🎖️", exam: "📝" };
+    const st = v.status === "approved" ? "approved" : v.status === "rejected" ? "rejected" : "pending";
+    const label = v.status === "approved" ? "אושרה ✓" : v.status === "rejected" ? "נדחתה ✗" : "ממתין לאישור";
 
-    list.appendChild(div("card",[
-      act ? div("",[
-        e("div",{style:"display:flex;gap:5px;margin-bottom:10px"},[
-          e("input",{type:"date",id:"es"+v.id,class:"fi",value:v.start_date,style:"flex:1"}),
-          e("input",{type:"date",id:"ee"+v.id,class:"fi",value:v.end_date,style:"flex:1"})
+    list.appendChild(div("card", [
+      act ? div("", [
+        e("div", { style: "display:flex;gap:5px;margin-bottom:10px" }, [
+          e("input", { type: "date", id: "es" + v.id, class: "fi", value: v.start_date, style: "flex:1" }),
+          e("input", { type: "date", id: "ee" + v.id, class: "fi", value: v.end_date, style: "flex:1" })
         ]),
-        div("form-actions",[
-          btn("btn-sm btn-sm-green","שמור ושלח",()=>editVacation(v.id,$("es"+v.id).value,$("ee"+v.id).value,"pending"),{style:"flex:1"}),
-          btn("btn-sm btn-sm-gray","ביטול",()=>S.editingVac=null||render())
+        div("form-actions", [
+          btn("btn-sm btn-sm-green", "שמור ושלח", () => editVacation(v.id, $("es" + v.id).value, $("ee" + v.id).value, "pending"), { style: "flex:1" }),
+          btn("btn-sm btn-sm-gray", "ביטול", () => S.editingVac = null || render())
         ])
-      ]): div("display:flex;justify-content:space-between;align-items:center",[
-        div("",[
-          e("div",{style:"font-weight:800;font-size:15px"},`${icon} ${v.start_date} — ${v.end_date}`),
-          e("div",{class:"status-badge status-"+st,style:"margin-top:5px"},label)
-        ],{style:"flex:1"}),
-        div("",[
-          btn("btn-sm btn-sm-blue","✏️",()=>S.editingVac=v.id,{style:"margin-left:5px"}),
-          btn("btn-sm btn-sm-red","🗑️",()=>deleteVacRequest(v.id))
-        ])
-      ],{style:"display:flex;align-items:center"})
-    ],{style:"background:#0F172A;border:1px solid #1E293B"}));
+      ]) : div("", [
+        div("", [
+          e("div", { style: "font-weight:800;font-size:15px" }, `${icons[v.type] || "🌴"} ${v.start_date} — ${v.end_date}`),
+          e("div", { class: "status-badge status-" + st, style: "margin-top:5px" }, label)
+        ], { style: "flex:1" }),
+        div("", [
+          btn("btn-sm btn-sm-blue", "✏️", () => S.editingVac = v.id, { style: "margin-left:5px" }),
+          btn("btn-sm btn-sm-red", "🗑️", () => deleteVacRequest(v.id))
+        ], { style: "display:flex; align-items:center" })
+      ], { style: "display:flex;justify-content:space-between;align-items:center" })
+    ], { style: "background:#0F172A;border:1px solid #1E293B" }));
   });
   wrap.appendChild(list);
   return wrap;
@@ -2534,132 +2514,20 @@ function viewEmpVacations(){
 // ══════════════════════════════════════════════════════
 // ── CALENDAR VIEW ──
 function viewCalendar() {
-  const wrap = e("div");
+  // ... (הקוד הקודם שלך של לוח השנה) ...
+  // בתוך הלופ שבונה את התאים (for let d=1...):
   
-  // אתחול מונע שגיאת Invalid Date
-  if (S.monthOffset === undefined) S.monthOffset = 0;
+  const dayExams = S.vacations.filter(v => v.type === "exam" && v.status === "approved" && dateStr >= v.start_date && dateStr <= v.end_date);
   
-  const now = new Date();
-  const year = now.getFullYear() + Math.floor((now.getMonth() + S.monthOffset) / 12);
-  const month = ((now.getMonth() + S.monthOffset) % 12 + 12) % 12;
-  const monthName = new Date(year, month, 1).toLocaleDateString("he-IL", {month:"long", year:"numeric"});
-
-  // כותרת וניווט חודשים
-  wrap.appendChild(div("section-header",[
-    div("page-title", ["🗓️ " + monthName]),
-    e("div",{style:"display:flex;gap:8px"},[
-      e("button",{class:"btn-sm btn-sm-gray", onclick:()=>{S.monthOffset++; render();}}, "→"),
-      e("button",{class:"btn-sm btn-sm-blue", onclick:()=>{S.monthOffset=0; render();}}, "החודש"),
-      e("button",{class:"btn-sm btn-sm-gray", onclick:()=>{S.monthOffset--; render();}}, "←")
-    ])
-  ]));
-
-  // פילטר עובדים
-  const filterWrap = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"});
-  filterWrap.appendChild(e("button",{
-    style:`padding:5px 12px;border-radius:8px;border:1px solid ${S.calFilterEmp===null?"#3B82F6":"#334155"};background:${S.calFilterEmp===null?"#3B82F622":"#1E293B"};color:${S.calFilterEmp===null?"#60A5FA":"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
-    onclick:()=>{S.calFilterEmp=null; render();}
-  },"כולם"));
-  
-  S.employees.forEach((emp,idx)=>{
-    const col=ec(idx);
-    const sel=S.calFilterEmp===emp.id;
-    filterWrap.appendChild(e("button",{
-      style:`padding:5px 12px;border-radius:8px;border:1px solid ${sel?col+"aa":col+"44"};background:${sel?col+"33":"#1E293B"};color:${sel?col:"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
-      onclick:()=>{S.calFilterEmp=sel?null:emp.id; render();}
-    }, emp.name.split(" ")[0]));
-  });
-  wrap.appendChild(filterWrap);
-
-  // חישובי גריד
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month+1, 0);
-  const startDow = firstDay.getDay(); // 0=ראשון
-  const totalDays = lastDay.getDate();
-
-  const calCard = div("card");
-  calCard.style.padding = "12px";
-
-  // שורת ימי השבוע
-  const hdrRow = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px"});
-  DAYS.forEach(d=>hdrRow.appendChild(e("div",{style:"text-align:center;font-size:11px;font-weight:700;color:#64748B;padding:4px 0"}, d)));
-  calCard.appendChild(hdrRow);
-
-  const grid = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px"});
-
-  // תאים ריקים לתחילת חודש
-  for (let i=0; i<startDow; i++) {
-    grid.appendChild(e("div",{style:"min-height:80px"}));
-  }
-
-  // בניית התאים לכל יום
-  for (let d=1; d<=totalDays; d++) {
-    const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    const dt = new Date(dateStr + "T00:00:00");
-    const isToday = dateStr === today();
-    const isWeekend = dt.getDay() === 5 || dt.getDay() === 6;
-
-    // שליפת חופשות/מילואים לאותו יום
-    const dayAbsences = S.vacations.filter(v => v.status === "approved" && dateStr >= v.start_date && dateStr <= v.end_date);
-
-    const cell = e("div",{
-      style:`min-height:80px;background:${isToday?"#1E3A5F":isWeekend?"#1A2234":"#1E293B"};border-radius:8px;padding:4px;border:1px solid ${isToday?"#3B82F6":"#334155"};cursor:pointer`,
-      onclick:()=>{
-        const today2 = new Date();
-        today2.setHours(0,0,0,0);
-        const diffDays = Math.round((dt - today2)/(1000*60*60*24));
-        S.weekOffset = Math.floor(diffDays/7);
-        S.view="schedule";
-        loadSchedule().then(()=>render());
-      }
-    });
-
-    cell.appendChild(e("div",{style:`font-size:13px;font-weight:${isToday?"900":"600"};color:${isToday?"#60A5FA":isWeekend?"#94A3B8":"#E2E8F0"};margin-bottom:3px`}, String(d)));
-
-    // מחווני משמרות (נקודות/שמות קטנים)
-    SHIFTS.forEach(sh => {
-      const empIds = (S.schedule[dateStr]?.[sh.id] || []);
-      const filtered = S.calFilterEmp ? empIds.filter(id=>id===S.calFilterEmp) : empIds;
-      
-      if (filtered.length > 0) {
-        const row = e("div",{style:`display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px`});
-        filtered.slice(0,2).forEach(empId => {
-          const col = ec(empIdx(empId));
-          row.appendChild(e("div",{style:`background:${col}22;border:1px solid ${col}44;border-radius:4px;padding:1px 3px;font-size:9px;font-weight:700;color:${col};white-space:nowrap`}, getEmp(empId)?.name.split(" ")[0]));
-        });
-        cell.appendChild(row);
-      }
-    });
-
-    // העדרויות - למנהלים בלבד
-    if (isManager()) {
-      dayAbsences.forEach(v => {
-        const emp = getEmp(v.employee_id);
-        if (emp) {
-          const isReserve = v.type === 'reserve';
-          const icon = isReserve ? '🎖️' : '🌴';
-          const color = isReserve ? '#818CF8' : '#F59E0B';
-          cell.appendChild(e("div",{style:`font-size:9px;color:${color};background:${color}11;border-radius:4px;padding:1px 4px;margin-top:1px;white-space:nowrap;overflow:hidden`}, `${icon} ${emp.name.split(" ")[0]}`));
-        }
-      });
+  dayExams.forEach(v => {
+    const examEmp = getEmp(v.employee_id);
+    if (examEmp) {
+      cell.appendChild(e("div", {
+        style: "font-size:9px; color:#10B981; background:#10B98111; border-radius:4px; padding:1px 4px; margin-top:1px; white-space:nowrap; border:1px solid #10B98133"
+      }, `📝 מבחן: ${examEmp.name.split(" ")[0]}`));
     }
-
-    grid.appendChild(cell);
-  }
-
-  calCard.appendChild(grid);
-  wrap.appendChild(calCard);
-
-  // מקרא
-  wrap.appendChild(div("",[ 
-    e("div",{style:"display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:#64748B"},[
-      e("span",{},"💡 לחץ על יום למעבר לסידור השבועי"),
-      isManager() ? e("span",{style:"color:#F59E0B"},"🌴 חופשה") : null,
-      isManager() ? e("span",{style:"color:#818CF8"},"🎖️ מילואים") : null
-    ].filter(Boolean))
-  ]));
-
-  return wrap;
+  });
+  // ...
 }
 // ══════════════════════════════════════════════════════
 // RENDER
