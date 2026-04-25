@@ -293,7 +293,7 @@ let S = {
   newEmp: {name:"",email:"",idNumber:"",phone:"",role:"employee"},
   newVac: {employeeId:"",startDate:"",endDate:"",reason:""},
   availDraft: {}, availTargetOffset: 1,
-  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null,
+  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null, monthOffset: 0,
   currentPublishType: null, showBlocksModal: false,
   toast: null, modal: null,
   loginMode: "login",
@@ -2701,49 +2701,28 @@ function viewEmpVacations() {
 // ══════════════════════════════════════════════════════
 function viewCalendar() {
   const wrap = e("div");
+  if (!S.monthOffset) S.monthOffset = 0;
+  
   const now = new Date();
-  const year = now.getFullYear() + Math.floor((now.getMonth() + S.monthOffset) / 12);
-  const month = ((now.getMonth() + S.monthOffset) % 12 + 12) % 12;
-  const monthName = new Date(year, month, 1).toLocaleDateString("he-IL", {month:"long", year:"numeric"});
+  const viewMonth = now.getMonth() + S.monthOffset;
+  const viewYear = now.getFullYear() + Math.floor(viewMonth / 12);
+  const actualMonth = ((viewMonth % 12) + 12) % 12;
+  
+  const monthName = new Date(viewYear, actualMonth, 1).toLocaleDateString("he-IL", {month:"long", year:"numeric"});
 
-  // Header
   wrap.appendChild(div("section-header",[
     div("page-title",["🗓️ "+monthName]),
     e("div",{style:"display:flex;gap:8px"},[
-      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset--;render();}},"←"),
-      e("button",{class:"btn-sm btn-sm-blue",onclick:()=>{S.monthOffset=0;render();}},"החודש"),
-      e("button",{class:"btn-sm btn-sm-gray",onclick:()=>{S.monthOffset++;render();}},"→")
+      btn("btn-sm btn-sm-gray","→",()=>{S.monthOffset++;render();}),
+      btn("btn-sm btn-sm-blue","החודש",()=>{S.monthOffset=0;render();}),
+      btn("btn-sm btn-sm-gray","←",()=>{S.monthOffset--;render();})
     ])
   ]));
 
-  // Employee filter
-  const filterWrap = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"});
-  filterWrap.appendChild(e("button",{
-    style:`padding:5px 12px;border-radius:8px;border:1px solid ${S.calFilterEmp===null?"#3B82F6":"#334155"};background:${S.calFilterEmp===null?"#3B82F622":"#1E293B"};color:${S.calFilterEmp===null?"#60A5FA":"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
-    onclick:()=>{S.calFilterEmp=null;render();}
-  },"כולם"));
-  S.employees.forEach((emp,idx)=>{
-    const col=ec(idx);
-    const sel=S.calFilterEmp===emp.id;
-    filterWrap.appendChild(e("button",{
-      style:`padding:5px 12px;border-radius:8px;border:1px solid ${sel?col+"aa":col+"44"};background:${sel?col+"33":"#1E293B"};color:${sel?col:"#64748B"};font-family:inherit;font-size:12px;font-weight:600`,
-      onclick:()=>{S.calFilterEmp=sel?null:emp.id;render();}
-    },emp.name.split(" ")[0]));
-  });
-  wrap.appendChild(filterWrap);
-
-  // Build calendar grid
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month+1, 0);
-  const startDow = firstDay.getDay(); // 0=Sun
+  const firstDay = new Date(viewYear, actualMonth, 1);
+  const lastDay = new Date(viewYear, actualMonth + 1, 0);
+  const startDow = firstDay.getDay();
   const totalDays = lastDay.getDate();
-
-  // Collect all schedules for this month
-  const allDates = [];
-  for (let d=1; d<=totalDays; d++) {
-    const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    allDates.push(dateStr);
-  }
 
   const calCard = div("card");
   calCard.style.padding = "12px";
@@ -2753,84 +2732,52 @@ function viewCalendar() {
   DAYS.forEach(d=>hdrRow.appendChild(e("div",{style:"text-align:center;font-size:11px;font-weight:700;color:#64748B;padding:4px 0"},d)));
   calCard.appendChild(hdrRow);
 
-  // Grid
   const grid = e("div",{style:"display:grid;grid-template-columns:repeat(7,1fr);gap:2px"});
 
-  // Empty cells before first day
   for (let i=0; i<startDow; i++) {
-    grid.appendChild(e("div",{style:"min-height:80px"}));
+    grid.appendChild(e("div",{style:"min-height:70px"}));
   }
 
-  allDates.forEach(dateStr => {
-    const d = new Date(dateStr+"T00:00:00");
-    const isToday = dateStr === new Date().toISOString().split("T")[0];
-    const isWeekend = d.getDay() === 5 || d.getDay() === 6;
-
-    // Get vacations for this day
-    const dayVacs = S.vacations.filter(v=>v.status==="approved"&&dateStr>=v.start_date&&dateStr<=v.end_date);
-
-    // Get assignments
-    const dayAssignments = {};
-    SHIFTS.forEach(sh=>{
-      const empIds = (S.schedule[dateStr]?.[sh.id]||[]);
-      const filtered = S.calFilterEmp ? empIds.filter(id=>id===S.calFilterEmp) : empIds;
-      if (filtered.length>0) dayAssignments[sh.id]=filtered;
-    });
+  for (let d=1; d<=totalDays; d++) {
+    const dateStr = viewYear+"-"+String(actualMonth+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+    const dt = new Date(dateStr+"T00:00:00");
+    const isToday = dateStr === today();
 
     const cell = e("div",{
-      style:`min-height:80px;background:${isToday?"#1E3A5F":isWeekend?"#1A2234":"#1E293B"};border-radius:8px;padding:4px;border:1px solid ${isToday?"#3B82F6":"#334155"};cursor:pointer`,
+      style:"min-height:70px;background:"+(isToday?"#1E3A5F":"#1E293B")+";border-radius:8px;padding:4px;border:1px solid "+(isToday?"#3B82F6":"#334155")+";cursor:pointer;overflow:hidden",
       onclick:()=>{
-        // Navigate to week containing this date
-        const d2=new Date(dateStr+"T00:00:00");
-        const today2=new Date();
-        today2.setHours(0,0,0,0);
-        const diffDays=Math.round((d2-today2)/(1000*60*60*24));
-        const diffWeeks=Math.floor(diffDays/7);
-        S.weekOffset=diffWeeks;
+        const diffDays = Math.round((dt - new Date(today()+"T00:00:00"))/(1000*60*60*24));
+        S.weekOffset = Math.floor(diffDays/7);
         S.view="schedule";
         loadSchedule().then(()=>render());
       }
     });
 
-    // Date number
-    cell.appendChild(e("div",{style:`font-size:13px;font-weight:${isToday?"900":"600"};color:${isToday?"#60A5FA":isWeekend?"#94A3B8":"#E2E8F0"};margin-bottom:3px`},String(d.getDate())));
+    cell.appendChild(e("div",{style:"font-size:12px;font-weight:"+(isToday?"900":"600")+";color:"+(isToday?"#60A5FA":"#E2E8F0")+";margin-bottom:2px"},String(d)));
 
-    // Shift indicators
-    Object.entries(dayAssignments).forEach(([shId,empIds])=>{
-      const sh=SHIFT_BY_ID[shId];
-      const row=e("div",{style:`display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px`});
-      empIds.slice(0,3).forEach(empId=>{
-        const empI=empIdx(empId);
-        const col=ec(empI);
-        const emp=getEmp(empId);
-        row.appendChild(e("div",{style:`background:${col}22;border:1px solid ${col}44;border-radius:4px;padding:1px 4px;font-size:9px;font-weight:700;color:${col}`},emp?.name.split(" ")[0]||"?"));
+    // Show schedule data if available
+    const daySched = S.schedule[dateStr];
+    if (daySched) {
+      SHIFTS.forEach(sh => {
+        const empIds = daySched[sh.id];
+        if (Array.isArray(empIds) && empIds.length > 0) {
+          cell.appendChild(e("div",{style:"font-size:8px;background:"+sh.color+"22;color:"+sh.color+";border-radius:3px;padding:1px 3px;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},sh.label+": "+empIds.length));
+        }
       });
-      if(empIds.length>3) row.appendChild(e("div",{style:"font-size:9px;color:#64748B"},`+${empIds.length-3}`));
-      cell.appendChild(row);
-    });
+    }
 
-    // Vacation indicators
+    // Vacations
+    const dayVacs = S.vacations.filter(v=>v.status==="approved"&&v.type!=="exam"&&dateStr>=v.start_date&&dateStr<=v.end_date);
     dayVacs.slice(0,2).forEach(v=>{
       const emp=getEmp(v.employee_id);
-      if(!emp) return;
-      cell.appendChild(e("div",{style:"font-size:9px;color:#F59E0B;background:#F59E0B11;border-radius:4px;padding:1px 4px;margin-top:1px"},"🌴 "+emp.name.split(" ")[0]));
+      if(emp) cell.appendChild(e("div",{style:"font-size:8px;color:#F59E0B;white-space:nowrap;overflow:hidden"},"🌴 "+emp.name.split(" ")[0]));
     });
 
     grid.appendChild(cell);
-  });
+  }
 
   calCard.appendChild(grid);
   wrap.appendChild(calCard);
-
-  // Legend
-  const legend = div("",[ 
-    e("div",{style:"display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:11px;color:#64748B"},[
-      e("span",{},"לחץ על יום לעבור לסידור השבועי"),
-      e("span",{style:"color:#F59E0B"},"🌴 = חופשה מאושרת"),
-      ...SHIFTS.map(sh=>e("span",{style:"color:"+sh.color},`● ${sh.label}`))
-    ])
-  ]);
-  wrap.appendChild(legend);
   return wrap;
 }
 
