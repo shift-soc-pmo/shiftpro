@@ -1592,7 +1592,7 @@ function viewSwaps() {
   if (!S.empSwapTab) S.empSwapTab = "swap";
 
   // Tabs
-  const tabs = div("",{style:"display:flex;gap:6px;margin-bottom:14px"});
+  const tabs = div("",[],{style:"display:flex;gap:6px;margin-bottom:14px"});
   [{id:"swap",label:"🔄 החלפה הדדית"},{id:"join",label:"➕ הצטרפות למשמרת"}].forEach(t=>{
     const isActive = S.empSwapTab===t.id;
     tabs.appendChild(e("button",{
