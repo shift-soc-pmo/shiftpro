@@ -544,7 +544,7 @@ async function loadSchedule() {
 // ══════════════════════════════════════════════════════
 // EMAIL NOTIFICATIONS via Supabase Edge Function + Resend
 // ══════════════════════════════════════════════════════
-const APP_URL = "https://razbar99.github.io/shift-soc-pmo/";
+const APP_URL = "https://shift-soc-pmo.github.io/shiftpro/";
 
 async function sendEmail(type, toEmail, data) {
   if (!toEmail) return;
@@ -780,11 +780,13 @@ async function addVacation() {
   const adminEmp = S.employees.find(e => e.role === "admin" || e.role === "manager");
   if (adminEmp?.email && empId === S.user.id) {
     const typeLabel = type === "reserve" ? "מילואים 🎖️" : type === "exam" ? "מבחן 📝" : "חופשה 🌴";
-    sendEmail("swap_request", adminEmp.email, {
+    sendEmail("absence_request", adminEmp.email, {
       requesterName: S.profile.name,
-      targetDate: S.newVac.startDate + (S.newVac.startDate !== S.newVac.endDate ? " — " + S.newVac.endDate : ""),
-      shiftLabel: typeLabel,
-      note: S.newVac.reason || ""
+      typeLabel,
+      type,
+      startDate: S.newVac.startDate,
+      endDate: S.newVac.endDate,
+      reason: S.newVac.reason || ""
     });
   }
 
@@ -2001,60 +2003,52 @@ function viewEmpView() {
   }
 
   else if (S.empViewTab==="avail") {
-    // BLOCK REQUEST SYSTEM
-    const targetOffset = S.availTargetOffset||1;
+    const targetOffset = S.availTargetOffset || 1;
     const targetDates = getWeekDates(S.weekOffset + targetOffset);
     const targetStart = targetDates[0];
     const maxBlocks = emp.max_blocks_per_week ?? 2;
     const rawAllowed = emp.allowed_block_slots || {};
-    // If no slots configured by manager, allow ALL shifts on ALL days
     const noConfig = Object.keys(rawAllowed).length === 0;
-    const allowedSlots = noConfig ? 
-      Object.fromEntries(DAYS.map(d=>[d, SHIFTS.map(s=>s.id)])) : 
-      rawAllowed;
+    const allowedSlots = noConfig ? Object.fromEntries(DAYS.map(d=>[d, SHIFTS.map(s=>s.id)])) : rawAllowed;
     const usedBlocks = Object.values(S.availDraft).filter(Boolean).length;
 
     const card = div("card");
 
-    // Week selector
     card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
-      btn("",`שבוע הבא (${fmtDate(getWeekDates(S.weekOffset+1)[0])})`,
-        ()=>{S.availTargetOffset=1;S.availDraft={};render();},{
-        style:`flex:1;padding:8px;border-radius:10px;border:1px solid ${targetOffset===1?"#EF4444aa":"#334155"};background:${targetOffset===1?"#EF444422":"#1E293B"};color:${targetOffset===1?"#EF4444":"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`
-      }),
-      btn("",`עוד שבועיים (${fmtDate(getWeekDates(S.weekOffset+2)[0])})`,
-        ()=>{S.availTargetOffset=2;S.availDraft={};render();},{
-        style:`flex:1;padding:8px;border-radius:10px;border:1px solid ${targetOffset===2?"#EF4444aa":"#334155"};background:${targetOffset===2?"#EF444422":"#1E293B"};color:${targetOffset===2?"#EF4444":"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`
-      })
+      btn("",`שבוע הבא`,()=>{S.availTargetOffset=1;S.availDraft={};render();},{style:`flex:1;padding:10px;border-radius:10px;border:1px solid ${targetOffset===1?"#EF4444aa":"#334155"};background:${targetOffset===1?"#EF444422":"#1E293B"};color:${targetOffset===1?"#EF4444":"#94A3B8"};font-family:inherit;font-size:13px;font-weight:700`}),
+      btn("",`עוד שבועיים`,()=>{S.availTargetOffset=2;S.availDraft={};render();},{style:`flex:1;padding:10px;border-radius:10px;border:1px solid ${targetOffset===2?"#EF4444aa":"#334155"};background:${targetOffset===2?"#EF444422":"#1E293B"};color:${targetOffset===2?"#EF4444":"#94A3B8"};font-family:inherit;font-size:13px;font-weight:700`})
     ]));
 
-    // Quota display
-    card.appendChild(e("div",{style:`background:${usedBlocks>=maxBlocks?"#EF444422":"#1E293B"};border:1px solid ${usedBlocks>=maxBlocks?"#EF444444":"#334155"};border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center`},[
+    card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},
+      fmtDate(targetDates[0]) + " — " + fmtDate(targetDates[6])));
+
+    card.appendChild(e("div",{style:`background:${usedBlocks>=maxBlocks?"#EF444422":"#1E293B"};border:1px solid ${usedBlocks>=maxBlocks?"#EF444444":"#334155"};border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center`},[
       e("div",{},[
-        e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},"🚫 בקשות חסימה"),
-        e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},"מותר לחסום עד "+maxBlocks+" משמרות בשבוע")
+        e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},"🚫 מכסת חסימות"),
+        e("div",{style:"font-size:11px;color:#64748B"},"עד "+maxBlocks+" משמרות")
       ]),
       e("div",{style:`font-size:22px;font-weight:900;color:${usedBlocks>=maxBlocks?"#EF4444":"#E2E8F0"}`},`${usedBlocks}/${maxBlocks}`)
     ]));
 
     if (maxBlocks === 0) {
-      card.appendChild(e("div",{style:"text-align:center;padding:24px;color:#64748B;font-size:13px"},"המנהל לא אישר לך לחסום משמרות השבוע"));
-      wrap.appendChild(card);
+      card.appendChild(e("div",{style:"text-align:center;padding:24px;color:#64748B;font-size:13px"},"המנהל לא אישר לך לחסום משמרות"));
     } else {
-      card.appendChild(e("div",{style:"font-size:12px;color:#94A3B8;margin-bottom:12px"},"בחר משמרות לחסימה (רק המשמרות המאושרות מוצגות):"));
+      card.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"לחץ על משמרות שאתה לא יכול לעבוד:"));
 
-      const blockTable = e("table",{style:"width:100%;border-collapse:collapse"});
-      const bt_head = e("tr",[e("th",{style:"text-align:right;font-size:11px;color:#64748B;padding:4px 6px"},"")]);
-      SHIFTS.forEach(sh => bt_head.appendChild(e("th",{style:`text-align:center;font-size:11px;font-weight:700;color:${sh.color};padding:4px 6px`},sh.label)));
-      blockTable.appendChild(bt_head);
-
-      targetDates.forEach((date,di) => {
+      targetDates.forEach((date, di) => {
         const dt = new Date(date+"T00:00:00");
         const dayName = DAYS[dt.getDay()];
-        const dayAllowed = allowedSlots[dayName]||[];
-        if (dayAllowed.length === 0) return; // skip days with no allowed blocks
+        const dayAllowed = allowedSlots[dayName] || [];
+        if (dayAllowed.length === 0) return;
 
-        const row = e("tr",[e("td",{style:"font-size:12px;color:#94A3B8;font-weight:600;padding:6px 6px;white-space:nowrap"},dayName+" "+dt.getDate())]);
+        const dayCard = e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:10px"});
+        const dateStr = dt.getDate()+"/"+(dt.getMonth()+1)+"/"+dt.getFullYear();
+        dayCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"},[
+          e("div",{style:"font-weight:800;font-size:15px;color:#E2E8F0"},dayName),
+          e("div",{style:"font-size:13px;color:#64748B"},dateStr)
+        ]));
+
+        const shiftsRow = e("div",{style:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
         SHIFTS.forEach(sh => {
           const key = di+"|"+sh.id;
           const canBlock = dayAllowed.includes(sh.id);
@@ -2062,71 +2056,88 @@ function viewEmpView() {
           const atLimit = !picked && usedBlocks >= maxBlocks;
 
           if (!canBlock) {
-            row.appendChild(e("td",{style:"text-align:center;padding:4px 6px"},[
-              e("span",{style:"font-size:12px;color:#1E293B"},"—")
+            shiftsRow.appendChild(e("div",{style:"padding:14px 8px;border-radius:10px;background:#1E293B;color:#475569;text-align:center;font-size:11px"},[
+              e("div",{},sh.label),
+              e("div",{style:"font-size:9px;margin-top:2px"},"לא ניתן")
             ]));
             return;
           }
 
-          row.appendChild(e("td",{style:"text-align:center;padding:4px 6px"},[
-            e("button",{
-              class:"avail-cell"+(picked?" picked":""),
-              disabled: atLimit && !picked,
-              style: picked
-                ? `background:#EF444433;border-color:#EF4444;color:#EF4444;font-weight:800`
-                : atLimit
-                ? `background:#0F172A;border-color:#1E293B;color:#1E293B;cursor:not-allowed`
-                : `background:#0F172A;border-color:#334155;color:#334155`,
-              onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
-            }, picked?"🚫":"·")
+          shiftsRow.appendChild(e("button",{
+            disabled: atLimit && !picked,
+            style: picked ? `padding:14px 8px;border-radius:10px;background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;cursor:pointer;font-family:inherit` : atLimit ? `padding:14px 8px;border-radius:10px;background:#0F172A;border:1px solid #1E293B;color:#1E293B;cursor:not-allowed;font-family:inherit` : `padding:14px 8px;border-radius:10px;background:#1E293B;border:1px solid ${sh.color}44;color:${sh.color};font-weight:700;cursor:pointer;font-family:inherit`,
+            onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
+          },[
+            e("div",{style:"font-size:13px"},picked?"🚫 "+sh.label:sh.label),
+            e("div",{style:"font-size:9px;opacity:0.8;margin-top:2px"},sh.start+"-"+sh.end)
           ]));
         });
-        blockTable.appendChild(row);
+        dayCard.appendChild(shiftsRow);
+        card.appendChild(dayCard);
       });
-      card.appendChild(blockTable);
 
-      // Reason inputs for each selected block
-      const selectedKeys = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
-      if (selectedKeys.length > 0) {
+      const selKeys = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
+      if (selKeys.length > 0) {
         card.appendChild(e("div",{style:"margin-top:14px;border-top:1px solid #334155;padding-top:12px"},[
-          e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:10px"},"סיבות לחסימה:")
+          e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:10px"},"💬 סיבות (אופציונלי):")
         ]));
-        selectedKeys.forEach(key => {
+        selKeys.forEach(key => {
           const [di,shId] = key.split("|");
           const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
           const sh = SHIFT_BY_ID[shId];
-          const reasonKey = "reason_"+key;
-          card.appendChild(e("div",{style:"margin-bottom:10px"},[
+          card.appendChild(e("div",{style:"margin-bottom:8px"},[
             e("div",{style:`font-size:12px;font-weight:700;color:${sh.color};margin-bottom:4px`},DAYS[dt.getDay()]+" "+dt.getDate()+" — "+sh.label),
-            e("input",{
-              class:"fi",
-              placeholder:"סיבה (אופציונלי)",
-              value:S.blockReasons?.[reasonKey]||"",
-              oninput:ev=>{
-                if(!S.blockReasons) S.blockReasons={};
-                S.blockReasons[reasonKey]=ev.target.value;
-              }
-            })
+            e("input",{class:"fi",placeholder:"סיבה (אופציונלי)",value:S.blockReasons?.["reason_"+key]||"",
+              oninput:ev=>{if(!S.blockReasons)S.blockReasons={};S.blockReasons["reason_"+key]=ev.target.value;}})
           ]));
         });
       }
 
       card.appendChild(div("form-actions",[
         btn("btn-sm btn-sm-red","📤 שלח בקשות חסימה",async()=>{
-          if (!selectedKeys.length) { toast("בחר לפחות משמרת אחת","err"); return; }
-          // Reasons are optional
-          const slots = selectedKeys.map(k=>{
+          if (!selKeys.length) { toast("בחר לפחות משמרת אחת","err"); return; }
+          const slots = selKeys.map(k=>{
             const [di,shId]=k.split("|");
-            const dt2=new Date(targetDates[parseInt(di)]+"T00:00:00");
-            return {day:dt2.getDay(),shift:shId,date:targetDates[parseInt(di)],reason:S.blockReasons?.["reason_"+k]||""};
+            return {day:new Date(targetDates[parseInt(di)]+"T00:00:00").getDay(),shift:shId,date:targetDates[parseInt(di)],reason:S.blockReasons?.["reason_"+k]||""};
           });
           await submitAvailability(emp.id, targetStart, slots, "חסימות");
-          S.availDraft={}; S.blockReasons={}; render();
-          toast("בקשות חסימה נשלחו ✓");
+          S.availDraft={}; S.blockReasons={};
+          toast("בקשות חסימה נשלחו ✓"); render();
         },{style:"flex:1"}),
         btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};S.blockReasons={};render();})
       ],{style:"margin-top:12px"}));
-      wrap.appendChild(card);
+    }
+
+    wrap.appendChild(card);
+
+    // History
+    const myPastBlocks = (S.availSubmissions||[]).filter(b=>b.employee_id===emp.id);
+    if (myPastBlocks.length > 0) {
+      const histCard = div("card",[
+        e("div",{style:"font-weight:800;font-size:14px;color:#94A3B8;margin-bottom:12px"},"📜 חסימות שהגשת בעבר")
+      ]);
+      const byWeek = {};
+      myPastBlocks.forEach(b => {
+        const wk = b.week_start || "ללא שבוע";
+        if (!byWeek[wk]) byWeek[wk] = [];
+        byWeek[wk].push(b);
+      });
+      Object.entries(byWeek).sort().reverse().forEach(([wk, blocks]) => {
+        histCard.appendChild(e("div",{style:"font-weight:700;font-size:12px;color:#60A5FA;margin-bottom:6px;margin-top:10px"},
+          "שבוע " + (wk !== "ללא שבוע" ? fmtDate(wk) : wk)));
+        blocks.forEach(b => {
+          const dt = new Date(b.date+"T00:00:00");
+          const sh = SHIFT_BY_ID[b.shift];
+          histCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #0F172A"},[
+            e("div",{style:"font-size:12px"},[
+              e("span",{style:`color:${sh?.color||"#94A3B8"};font-weight:700`}, DAYS[dt.getDay()]+" "+dt.getDate()+"/"+(dt.getMonth()+1)),
+              e("span",{style:"color:#64748B;margin-right:8px"}, " "+(sh?.label || b.shift))
+            ]),
+            b.reason ? e("div",{style:"font-size:11px;color:#64748B;font-style:italic;flex:1;text-align:left;margin-right:8px"},b.reason) : null
+          ]));
+        });
+      });
+      wrap.appendChild(histCard);
     }
   }
 
