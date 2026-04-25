@@ -2174,7 +2174,7 @@ function viewEmpView() {
     wrap.appendChild(viewEmpVacations());
   }
   else if (S.empViewTab==="swaps_emp") {
-    wrap.appendChild(viewSwaps());
+    wrap.appendChild(viewSwaps(true));
   }
 
   return wrap;
@@ -2801,7 +2801,7 @@ function render() {
     else if(S.view==="employees" && isManager()) main.appendChild(viewEmployees());
     else if(S.view==="employees" && !isManager()) { S.view="empview"; main.appendChild(viewEmpView()); }
     else if(S.view==="vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
-    else if(S.view==="swaps")     main.appendChild(viewSwaps());
+    else if(S.view==="swaps")     main.appendChild(viewSwaps(!isManager()));
     else if(S.view==="stats")     main.appendChild(viewStats());
     else if(S.view==="empview")   main.appendChild(viewEmpView());
     else if(S.view==="settings")  main.appendChild(viewSettings());
@@ -2822,9 +2822,8 @@ function render() {
     const bottomTabs = isEmpOnly ? [
       {id:"empview",icon:"📋",label:"שלי"},
       {id:"schedule",icon:"📅",label:"סידור"},
-      {id:"calendar",icon:"🗓️",label:"חודש"},
-      {id:"vacations",icon:"🌴",label:"חופשות"},
-      {id:"swaps",icon:"🔄",label:"חילופים"},
+      {id:"vacations",icon:"🌴",label:"העדרויות"},
+      {id:"swaps_nav",icon:"🔄",label:"חילופים"},
     ] : [
       {id:"home",icon:"🏠",label:"בית"},
       {id:"schedule",icon:"📅",label:"סידור"},
