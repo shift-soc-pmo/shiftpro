@@ -444,6 +444,7 @@ async function checkAuth() {
 }
 
 function isManager() {
+  if (S.testAsEmployee) return false;
   return S.profile?.role === "admin" || S.profile?.role === "manager";
 }
 function isAdmin() {
@@ -749,16 +750,51 @@ async function saveConstraints(empId, data) {
 // VACATION ACTIONS
 // ══════════════════════════════════════════════════════
 async function addVacation() {
-  const {employeeId,startDate,endDate,reason} = S.newVac;
-  if (!employeeId||!startDate||!endDate) { toast("נא למלא כל השדות","err"); return; }
-  if (endDate < startDate) { toast("תאריך סיום לפני התחלה","err"); return; }
-  if (startDate < today()) { toast("לא ניתן לבקש חופשה בתאריך שעבר","err"); return; }
-  const {error} = await sb.from("vacations").insert({employee_id:employeeId, start_date:startDate, end_date:endDate, reason:reason||null, status:"pending"});
-  if (error) { toast("שגיאה: "+error.message,"err"); return; }
-  await loadVacations();
-  S.newVac = {employeeId:"",startDate:"",endDate:"",reason:""};
+  if (!S.newVac.startDate || !S.newVac.endDate) {
+    toast("נא למלא תאריכים", "err");
+    return;
+  }
+  if (S.newVac.endDate < S.newVac.startDate) {
+    toast("תאריך סיום לפני התחלה", "err");
+    return;
+  }
+
+  const type = S.newVac.type || "vacation";
+  // Manager can pick employee, employee defaults to self
+  const empId = S.newVac.employeeId || S.user.id;
+
+  const payload = {
+    employee_id: empId,
+    business_id: S.profile.business_id,
+    start_date: S.newVac.startDate,
+    end_date: S.newVac.endDate,
+    type,
+    status: "pending",
+    reason: S.newVac.reason || null
+  };
+
+  const { error } = await sb.from("vacations").insert([payload]);
+  if (error) { toast("שגיאה: " + error.message, "err"); return; }
+
+  // שלח מייל למנהל
+  const adminEmp = S.employees.find(e => e.role === "admin" || e.role === "manager");
+  if (adminEmp?.email && empId === S.user.id) {
+    const typeLabel = type === "reserve" ? "מילואים 🎖️" : type === "exam" ? "מבחן 📝" : "חופשה 🌴";
+    sendEmail("swap_request", adminEmp.email, {
+      requesterName: S.profile.name,
+      targetDate: S.newVac.startDate + (S.newVac.startDate !== S.newVac.endDate ? " — " + S.newVac.endDate : ""),
+      shiftLabel: typeLabel,
+      note: S.newVac.reason || ""
+    });
+  }
+
+  const labels = { vacation: "חופשה 🌴", reserve: "מילואים 🎖️", exam: "מבחן 📝" };
+  toast(`בקשת ${labels[type] || "היעדרות"} נשלחה לאישור מנהל ✓`);
+
   S.showAddVac = false;
-  toast("חופשה נרשמה ✓"); render();
+  S.newVac = { type: "vacation", startDate: "", endDate: "", reason: "" };
+  await loadVacations();
+  render();
 }
 
 async function updateVacStatus(id, status) {
@@ -2862,30 +2898,33 @@ if (/iPhone|iPad|Android/i.test(navigator.userAgent)) {
   document.getElementById('mob-console-btn').style.display = 'block';
 }
 
-// Override console methods
-const logEl = document.getElementById('mob-console-log');
-function addLog(type, args) {
-  const colors = { log:'#ccc', warn:'#fa0', error:'#f44', info:'#4af' };
-  const line = document.createElement('div');
-  line.style.color = colors[type] || '#ccc';
-  line.style.borderBottom = '1px solid #111';
-  line.style.padding = '2px 0';
-  line.textContent = '[' + type.toUpperCase() + '] ' + Array.from(args).map(a => {
-    try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch(e) { return String(a); }
-  }).join(' ');
-  logEl.appendChild(line);
-  logEl.scrollTop = logEl.scrollHeight;
-}
+// Override console methods (safe)
+try {
+  const logEl = document.getElementById('mob-console-log');
+  if (logEl && console && typeof console.log === 'function' && console.log.bind) {
+    function addLog(type, args) {
+      const colors = { log:'#ccc', warn:'#fa0', error:'#f44', info:'#4af' };
+      const line = document.createElement('div');
+      line.style.color = colors[type] || '#ccc';
+      line.style.borderBottom = '1px solid #111';
+      line.style.padding = '2px 0';
+      line.textContent = '[' + type.toUpperCase() + '] ' + Array.from(args).map(a => {
+        try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch(e) { return String(a); }
+      }).join(' ');
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    const _log = console.log.bind(console);
+    const _warn = console.warn.bind(console);
+    const _error = console.error.bind(console);
+    const _info = console.info ? console.info.bind(console) : _log;
 
-const _log = console.log.bind(console);
-const _warn = console.warn.bind(console);
-const _error = console.error.bind(console);
-const _info = console.info.bind(console);
-
-console.log = function() { _log(...arguments); addLog('log', arguments); };
-console.warn = function() { _warn(...arguments); addLog('warn', arguments); };
-console.error = function() { _error(...arguments); addLog('error', arguments); };
-console.info = function() { _info(...arguments); addLog('info', arguments); };
+    console.log = function() { _log.apply(console, arguments); addLog('log', arguments); };
+    console.warn = function() { _warn.apply(console, arguments); addLog('warn', arguments); };
+    console.error = function() { _error.apply(console, arguments); addLog('error', arguments); };
+    console.info = function() { _info.apply(console, arguments); addLog('info', arguments); };
+  }
+} catch(e) {}
 
 window.onerror = function(msg, src, line) {
   addLog('error', [msg + ' (line ' + line + ')']);
