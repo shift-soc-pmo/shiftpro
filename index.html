@@ -293,6 +293,8 @@ let S = {
   newEmp: {name:"",email:"",idNumber:"",phone:"",role:"employee"},
   newVac: {employeeId:"",startDate:"",endDate:"",reason:""},
   availDraft: {}, availTargetOffset: 1,
+  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null,
+  currentPublishType: null, showBlocksModal: false,
   toast: null, modal: null,
   loginMode: "login",
 };
@@ -1866,7 +1868,7 @@ function viewEmpView() {
   }
 
   // Tabs
-  const tabs = [["shifts","📋 המשמרות שלי"],["schedule","📅 סידור"],["avail","🚫 בקש חסימה"],["vacation","🌴 חופשה"]];
+  const tabs = [["shifts","📋 המשמרות שלי"],["schedule","📅 סידור"],["avail","🚫 חסימה"],["vacation","🌴 היעדרויות"],["swaps_emp","🔄 חילופים"]];
   wrap.appendChild(e("div",{class:"emp-view-tabs"},tabs.map(([id,lbl])=>
     btn("ev-tab"+(S.empViewTab===id?" active":""),lbl,()=>{S.empViewTab=id;render();})
   )));
@@ -2093,48 +2095,13 @@ function viewEmpView() {
   }
 
   else if (S.empViewTab==="vacation") {
-    // Vacation request
-    const card = div("card",[div("card-title",["🌴 בקשת חופשה"])]);
-    const startInp = e("input",{class:"fi",type:"date",min:today()});
-    const endInp = e("input",{class:"fi",type:"date",min:today()});
-    const reasonInp = e("input",{class:"fi",placeholder:"סיבה (אופציונלי)"});
-    card.appendChild(div("form-row",[
-      div("form-col",[e("label",{class:"form-label"},"מתאריך *"),startInp]),
-      div("form-col",[e("label",{class:"form-label"},"עד תאריך *"),endInp])
-    ]));
-    card.appendChild(div("form-col",[e("label",{class:"form-label"},"סיבה"),reasonInp],{style:"margin-bottom:12px"}));
-    card.appendChild(div("form-actions",[
-      btn("btn-green","שלח בקשה",async()=>{
-        const s=startInp.value,en=endInp.value;
-        if(!s||!en){toast("נא למלא תאריכים","err");return;}
-        if(en<s){toast("תאריך סיום לפני התחלה","err");return;}
-        const {error}=await sb.from("vacations").insert({employee_id:emp.id,start_date:s,end_date:en,reason:reasonInp.value||null,status:"pending"});
-        if(error){toast("שגיאה: "+error.message,"err");return;}
-        await loadVacations();
-        toast("בקשת חופשה נשלחה ✓"); render();
-      },{style:"flex:1"}),
-    ]));
-
-    // Employee's vacations
-    const empVacs = S.vacations.filter(v=>v.employee_id===emp.id);
-    if (empVacs.length>0) {
-      card.appendChild(e("div",{style:"margin-top:16px;border-top:1px solid #334155;padding-top:12px"},[
-        e("div",{style:"font-weight:700;font-size:13px;color:#94A3B8;margin-bottom:8px"},"הבקשות שלי")
-      ]));
-      empVacs.forEach(v => {
-        const st = v.status==="approved"?"approved":v.status==="rejected"?"rejected":"pending";
-        const label = v.status==="approved"?"אושרה ✓":v.status==="rejected"?"נדחתה ✗":"ממתין";
-        card.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #0F172A"},[
-          e("div",{},[e("div",{style:"font-size:12px;font-weight:600"},v.start_date+(v.start_date!==v.end_date?" — "+v.end_date:"")),v.reason?e("div",{style:"font-size:11px;color:#64748B"},v.reason):null]),
-          e("span",{class:"status-badge status-"+st},label)
-        ]));
-      });
-    }
-    wrap.appendChild(card);
+    wrap.appendChild(viewEmpVacations());
+  }
+  else if (S.empViewTab==="swaps_emp") {
+    wrap.appendChild(viewSwaps());
   }
 
   return wrap;
-}
 
 // ── CONSTRAINTS MODAL ──
 function viewConstraintsModal() {
