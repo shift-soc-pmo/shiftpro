@@ -304,13 +304,6 @@ let S = {
 // ══════════════════════════════════════════════════════
 const $ = id => document.getElementById(id);
 function e(tag, props={}, children=[]) {
-  // תיקון חכם: אם הפרמטר השני הוא מערך, טקסט או אלמנט (ולא אובייקט מאפיינים)
-  // אנחנו מבינים שדילגו על ה-props והעבירו ישר את הילדים
-  if (Array.isArray(props) || typeof props === "string" || typeof props === "number" || props instanceof Node) {
-    children = props;
-    props = {};
-  }
-
   const el = document.createElement(tag);
   for(const [k,v] of Object.entries(props)){
     if(v===null||v===undefined||v===false) continue;
@@ -436,8 +429,34 @@ function runSmartSchedule() {
   });
 
   S.schedule = newSched;
-  saveScheduleToDB();
-  toast("שיבוץ אוטומטי הושלם ✓");
+  // Save immediately (no debounce)
+  clearTimeout(_saveTimer);
+  (async()=>{
+    if (!S.profile?.business_id) return;
+    const weekStart = getWeekDates(S.weekOffset)[0];
+    let { data: sched } = await sb.from("schedules")
+      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
+    if (!sched) {
+      const { data: ns } = await sb.from("schedules")
+        .insert({business_id:S.profile.business_id, week_start:weekStart, created_by:S.user.id}).select().single();
+      sched = ns;
+    }
+    if (!sched) return;
+    S.schedule.id = sched.id;
+    await sb.from("assignments").delete().eq("schedule_id", sched.id);
+    const rows = [];
+    Object.entries(S.schedule).forEach(([date, shifts]) => {
+      if (date === "id" || !shifts || typeof shifts !== "object") return;
+      Object.entries(shifts).forEach(([shift, empIds]) => {
+        if (!Array.isArray(empIds)) return;
+        empIds.forEach(empId => {
+          rows.push({ schedule_id:sched.id, employee_id:empId, date, shift });
+        });
+      });
+    });
+    if (rows.length) await sb.from("assignments").insert(rows);
+    toast("שיבוץ אוטומטי נשמר ✓");
+  })();
   render();
 }
 
@@ -2848,7 +2867,7 @@ function render() {
   // Mobile bottom nav
   if (S.view !== "login" && S.view !== "loading") {
     const pendingVacs2 = S.vacations.filter(v=>v.status==="pending").length;
-    const bottomNav = e("div",{class:"mobile-bottom-nav"});
+    const bottomNav = e("div",{class:"mobile-bottom-nav",style:"overflow-x:auto;-webkit-overflow-scrolling:touch"});
     const isEmpOnly = S.profile?.role === "employee";
     const bottomTabs = isEmpOnly ? [
       {id:"empview",icon:"📋",label:"שלי"},
