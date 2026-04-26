@@ -686,6 +686,33 @@ async function handleLogout() {
 // ══════════════════════════════════════════════════════
 // SCHEDULE ACTIONS
 // ══════════════════════════════════════════════════════
+function checkShiftConflict(date, shift, empId) {
+  const emp = getEmp(empId);
+  const name = emp?.name || "עובד";
+
+  // 1. Already assigned to another shift today
+  const todayShifts = SHIFTS.filter(sh =>
+    sh.id !== shift && (S.schedule[date]?.[sh.id]||[]).includes(empId)
+  );
+  if (todayShifts.length > 0) return `${name} כבר משובץ ל${todayShifts[0].label} ביום זה`;
+
+  // 2. Night then morning
+  if (shift === "morning") {
+    const yesterday = new Date(new Date(date+"T12:00:00").getTime() - 86400000);
+    const yStr = yesterday.getFullYear()+"-"+String(yesterday.getMonth()+1).padStart(2,"0")+"-"+String(yesterday.getDate()).padStart(2,"0");
+    if ((S.schedule[yStr]?.["night"]||[]).includes(empId)) return `${name} עבד לילה אתמול — לא ניתן לשבץ לבוקר`;
+  }
+
+  // 3. Night shift — check morning tomorrow
+  if (shift === "night") {
+    const tomorrow = new Date(new Date(date+"T12:00:00").getTime() + 86400000);
+    const tStr = tomorrow.getFullYear()+"-"+String(tomorrow.getMonth()+1).padStart(2,"0")+"-"+String(tomorrow.getDate()).padStart(2,"0");
+    if ((S.schedule[tStr]?.["morning"]||[]).includes(empId)) return `${name} משובץ לבוקר מחר — לא ניתן לשבץ ללילה`;
+  }
+
+  return null; // no conflict
+}
+
 function toggleCellEmp(date, shift, empId) {
   const weekStart = getWeekDates(S.weekOffset)[0];
   if (S.publishedWeeks.has(weekStart) && !confirm("השבוע פורסם. לשנות בכל זאת?")) return;
@@ -693,8 +720,17 @@ function toggleCellEmp(date, shift, empId) {
   if (!S.schedule[date][shift]) S.schedule[date][shift] = [];
   const arr = S.schedule[date][shift];
   const idx = arr.indexOf(empId);
-  if (idx >= 0) arr.splice(idx,1);
-  else arr.push(empId);
+
+  if (idx >= 0) {
+    // Removing — always allowed
+    arr.splice(idx,1);
+  } else {
+    // Adding — check constraints
+    const conflict = checkShiftConflict(date, shift, empId);
+    if (conflict) { toast(conflict,"err"); return; }
+
+    arr.push(empId);
+  }
   saveScheduleToDB();
   render();
 }
@@ -1611,15 +1647,24 @@ function viewVacations() {
 // ── SWAPS ──
 async function processManagerDecision(swap, isApproved) {
   if (isApproved) {
+    // Validate before approving
     if (swap.target_date && swap.giver_id) {
+      const c1 = checkShiftConflict(swap.date, swap.shift, swap.taker_id);
+      const c2 = checkShiftConflict(swap.target_date, swap.target_shift, swap.giver_id);
+      if (c1) { toast("לא ניתן לאשר: "+c1,"err"); return; }
+      if (c2) { toast("לא ניתן לאשר: "+c2,"err"); return; }
       const empsA = S.schedule[swap.date]?.[swap.shift];
       if (empsA) { const i = empsA.indexOf(swap.giver_id); if (i > -1) empsA[i] = swap.taker_id; }
       const empsB = S.schedule[swap.target_date]?.[swap.target_shift];
       if (empsB) { const i = empsB.indexOf(swap.taker_id); if (i > -1) empsB[i] = swap.giver_id; }
     } else if (swap.giver_id) {
+      const c = checkShiftConflict(swap.date, swap.shift, swap.taker_id);
+      if (c) { toast("לא ניתן לאשר: "+c,"err"); return; }
       const emps = S.schedule[swap.date]?.[swap.shift];
       if (emps) { const i = emps.indexOf(swap.giver_id); if (i > -1) emps[i] = swap.taker_id; }
     } else {
+      const c = checkShiftConflict(swap.date, swap.shift, swap.taker_id);
+      if (c) { toast("לא ניתן לאשר: "+c,"err"); return; }
       const emps = S.schedule[swap.date]?.[swap.shift];
       if (emps && !emps.includes(swap.taker_id)) emps.push(swap.taker_id);
     }
@@ -1838,9 +1883,16 @@ function viewSwaps(forceEmployee) {
           const [myDate,myShiftId] = S.swapMyShift.split("|");
           const [tDate,tShiftId,tEmpId] = S.swapTargetShift.split("|");
 
+          // Validate both sides of the swap
+          const empId2 = S.testAsEmployee ? S.empViewId : S.user.id;
+          const conflict1 = checkShiftConflict(tDate, tShiftId, empId2);
+          if (conflict1) { toast("לא ניתן לקבל משמרת: "+conflict1,"err"); return; }
+          const conflict2 = checkShiftConflict(myDate, myShiftId, tEmpId);
+          if (conflict2) { toast("לא ניתן להחליף: "+conflict2,"err"); return; }
+
           const {error} = await sb.from("swaps").insert([{
             business_id: S.profile.business_id,
-            giver_id: S.user.id,
+            giver_id: empId2,
             taker_id: tEmpId,
             date: myDate,
             shift: myShiftId,
@@ -1901,9 +1953,13 @@ function viewSwaps(forceEmployee) {
               empIds.length > 0 ? `משובצים: ${empIds.map(id=>getEmp(id)?.name.split(" ")[0]||"?").join(", ")}` : "אין משובצים עדיין")
           ]),
           btn("btn-sm btn-sm-blue","+ הצטרף",async()=>{
+            const empId = S.testAsEmployee ? S.empViewId : S.user.id;
+            const conflict = checkShiftConflict(date, shift.id, empId);
+            if (conflict) { toast(conflict,"err"); return; }
+
             const {error}=await sb.from("swaps").insert([{
               business_id:S.profile.business_id,
-              taker_id:S.user.id,
+              taker_id:empId,
               giver_id:null,
               date,shift:shift.id,
               status:"pending_approval"
@@ -2437,47 +2493,9 @@ function viewConstraintsModal() {
     ],{style:"margin-bottom:12px"});
     modal.appendChild(r1);
 
-    // Per shift
-    const r2 = div("card",[e("div",{class:"form-label",style:"margin-bottom:8px"},"מקסימום לפי סוג משמרת (ריק=ללא)"),
-      e("div",{style:"display:flex;gap:10px"},SHIFTS.map(sh => div("form-col",[
-        e("label",{style:"font-size:11px;font-weight:700;color:"+sh.color},sh.label),
-        e("input",{class:"fi",type:"number",min:0,max:7,placeholder:"∞",value:localPerShift[sh.id]!=null?localPerShift[sh.id]:"",
-          style:"text-align:center",
-          oninput:ev=>{const v=ev.target.value;if(v==="")delete localPerShift[sh.id];else localPerShift[sh.id]=parseInt(v)||0;}})
-      ])))
-    ],{style:"margin-bottom:12px"});
-    modal.appendChild(r2);
+    // Per shift limits removed - handled by block_limits
 
-    // Day constraints
-    for(const [groupLabel, days] of [["ראשון–חמישי",WEEKDAYS],["שישי–שבת",WEEKEND]]) {
-      const gc = div("card",[e("div",{class:"form-label",style:"margin-bottom:8px"},groupLabel)],{style:"margin-bottom:12px"});
-      const tbl = e("table",{class:"constraint-table"});
-      const thead = e("tr",[e("th",{style:"text-align:right"},"")]);
-      SHIFTS.forEach(sh => thead.appendChild(e("th",{style:`color:${sh.color}`},sh.label)));
-      tbl.appendChild(thead);
-      days.forEach(day => {
-        const row = e("tr",[e("td",{},day)]);
-        SHIFTS.forEach(sh => {
-          const val = localDC[day]?.[sh.id];
-          const cell = e("button",{
-            class:"constraint-cell"+(val===1?" allowed":val===0?" blocked":""),
-            style:"--sc:"+sh.color,
-            onclick:()=>{
-              if(!localDC[day]) localDC[day]={};
-              if(val===undefined) localDC[day][sh.id]=1;
-              else if(val===1) localDC[day][sh.id]=0;
-              else delete localDC[day][sh.id];
-              rebuildModal();
-            }
-          }, val===1?"✓":val===0?"✗":"~");
-          row.appendChild(e("td",{},[cell]));
-        });
-        tbl.appendChild(row);
-      });
-      gc.appendChild(tbl);
-      gc.appendChild(e("div",{style:"font-size:11px;color:#475569;margin-top:6px"},"✓ מותר · ✗ אסור · ~ ללא הגבלה · לחץ לשנות"));
-      modal.appendChild(gc);
-    }
+    // Day constraints removed - handled by block_limits
 
     // ── Block limits per day group ──
     const limCard = div("card",[
