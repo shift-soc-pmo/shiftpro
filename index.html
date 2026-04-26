@@ -1809,7 +1809,7 @@ function viewSwaps(forceEmployee) {
 
           if(error){toast("שגיאה: "+error.message,"err");return;}
           S.swapMyShift=null;S.swapTargetShift=null;
-          await loadSwaps();
+          await loadSwapRequests();
           toast("בקשת ההחלפה נשלחה למנהל ✓");render();
         },{style:"width:100%"}));
       }
@@ -1852,7 +1852,7 @@ function viewSwaps(forceEmployee) {
               status:"pending_approval"
             }]);
             if(error){toast("שגיאה: "+error.message,"err");return;}
-            await loadSwaps();
+            await loadSwapRequests();
             toast("הבקשה נשלחה למנהל ✓");render();
           })
         ]));
