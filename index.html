@@ -370,8 +370,11 @@ function runSmartSchedule() {
         shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
       });
 
-      if (lockedEmpIds.length >= 2) return;
-      const need = 2 - lockedEmpIds.length;
+      // כמה עובדים דרושים לכל משמרת (ניתן להגדיר בהגדרות)
+      const shiftTargets = S.business?.shift_targets || { morning: 2, afternoon: 1, night: 1 };
+      const target = shiftTargets[shiftId] || 2;
+      if (lockedEmpIds.length >= target) return;
+      const need = target - lockedEmpIds.length;
 
       // Score available employees
       const scored = S.employees
@@ -769,6 +772,7 @@ async function saveConstraints(empId, data) {
     day_constraints: data.dayConstraints,
     availability: data.availability,
     preferred_shifts: data.preferredShifts,
+    block_limits: data.blockLimits || null,
   }).eq("id", empId);
   await loadEmployees();
   S.constraintsEmp = null;
@@ -2035,11 +2039,25 @@ function viewEmpView() {
     const targetOffset = S.availTargetOffset || 1;
     const targetDates = getWeekDates(S.weekOffset + targetOffset);
     const targetStart = targetDates[0];
-    const maxBlocks = emp.max_blocks_per_week ?? 2;
+    const blockLimits = emp.block_limits || { weekday:{morning:3,afternoon:3,night:1}, weekend:{morning:1,afternoon:1,night:1} };
     const rawAllowed = emp.allowed_block_slots || {};
     const noConfig = Object.keys(rawAllowed).length === 0;
     const allowedSlots = noConfig ? Object.fromEntries(DAYS.map(d=>[d, SHIFTS.map(s=>s.id)])) : rawAllowed;
-    const usedBlocks = Object.values(S.availDraft).filter(Boolean).length;
+
+    // Count used blocks per shift per day group
+    function getBlockCount(shiftId, isWeekend) {
+      let count = 0;
+      Object.entries(S.availDraft).forEach(([key,val]) => {
+        if (!val) return;
+        const [di, sid] = key.split("|");
+        if (sid !== shiftId) return;
+        const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
+        const isWE = dt.getDay() === 5 || dt.getDay() === 6;
+        if (isWE === isWeekend) count++;
+      });
+      return count;
+    }
+    const totalUsed = Object.values(S.availDraft).filter(Boolean).length;
 
     const card = div("card");
 
@@ -2051,17 +2069,36 @@ function viewEmpView() {
     card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},
       fmtDate(targetDates[0]) + " — " + fmtDate(targetDates[6])));
 
-    card.appendChild(e("div",{style:`background:${usedBlocks>=maxBlocks?"#EF444422":"#1E293B"};border:1px solid ${usedBlocks>=maxBlocks?"#EF444444":"#334155"};border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center`},[
-      e("div",{},[
-        e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},"🚫 מכסת חסימות"),
-        e("div",{style:"font-size:11px;color:#64748B"},"עד "+maxBlocks+" משמרות")
+    // Quota display per shift type
+    const quotaCard = e("div",{style:"background:#1E293B;border:1px solid #334155;border-radius:10px;padding:12px;margin-bottom:14px"});
+    quotaCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"🚫 מכסת חסימות"));
+    quotaCard.appendChild(e("div",{style:"display:grid;grid-template-columns:1fr 1fr;gap:8px"},[
+      e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
+        e("div",{style:"font-size:11px;color:#3B82F6;font-weight:700;margin-bottom:6px"},"ראשון — חמישי"),
+        ...SHIFTS.map(sh=>{
+          const lim = blockLimits.weekday?.[sh.id]??3;
+          const used = getBlockCount(sh.id, false);
+          return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
+            e("span",{style:"color:"+sh.color},sh.label),
+            e("span",{style:`font-weight:700;color:${used>=lim?"#EF4444":"#94A3B8"}`},`${used}/${lim}`)
+          ]);
+        })
       ]),
-      e("div",{style:`font-size:22px;font-weight:900;color:${usedBlocks>=maxBlocks?"#EF4444":"#E2E8F0"}`},`${usedBlocks}/${maxBlocks}`)
+      e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
+        e("div",{style:"font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px"},"שישי — שבת"),
+        ...SHIFTS.map(sh=>{
+          const lim = blockLimits.weekend?.[sh.id]??1;
+          const used = getBlockCount(sh.id, true);
+          return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
+            e("span",{style:"color:"+sh.color},sh.label),
+            e("span",{style:`font-weight:700;color:${used>=lim?"#EF4444":"#94A3B8"}`},`${used}/${lim}`)
+          ]);
+        })
+      ])
     ]));
+    card.appendChild(quotaCard);
 
-    if (maxBlocks === 0) {
-      card.appendChild(e("div",{style:"text-align:center;padding:24px;color:#64748B;font-size:13px"},"המנהל לא אישר לך לחסום משמרות"));
-    } else {
+    {
       card.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"לחץ על משמרות שאתה לא יכול לעבוד:"));
 
       targetDates.forEach((date, di) => {
@@ -2082,7 +2119,10 @@ function viewEmpView() {
           const key = di+"|"+sh.id;
           const canBlock = dayAllowed.includes(sh.id);
           const picked = !!S.availDraft[key];
-          const atLimit = !picked && usedBlocks >= maxBlocks;
+          const isWeekend = dt.getDay() === 5 || dt.getDay() === 6;
+          const shiftLimit = isWeekend ? (blockLimits.weekend?.[sh.id]??1) : (blockLimits.weekday?.[sh.id]??3);
+          const shiftUsed = getBlockCount(sh.id, isWeekend);
+          const atLimit = !picked && shiftUsed >= shiftLimit;
 
           if (!canBlock) {
             shiftsRow.appendChild(e("div",{style:"padding:14px 8px;border-radius:10px;background:#1E293B;color:#475569;text-align:center;font-size:11px"},[
@@ -2168,6 +2208,35 @@ function viewEmpView() {
       });
       wrap.appendChild(histCard);
     }
+
+    // בקשה מיוחדת למנהל
+    const reqCard = div("card",[
+      e("div",{style:"font-weight:800;font-size:14px;color:#F59E0B;margin-bottom:10px"},"📩 בקשה מיוחדת למנהל"),
+      e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},"צריך עוד חסימות? יש סיבה מיוחדת? שלח הודעה למנהל"),
+      e("textarea",{
+        class:"fi",
+        placeholder:"לדוגמה: אני צריך לחסום עוד יום בגלל מבחן / אירוע משפחתי...",
+        style:"min-height:80px;resize:vertical;margin-bottom:12px",
+        id:"block-special-request"
+      }),
+      btn("btn-add","📩 שלח בקשה למנהל",async()=>{
+        const msg = document.getElementById("block-special-request")?.value;
+        if (!msg?.trim()) { toast("נא לכתוב הודעה","err"); return; }
+        // Send email to manager
+        const adminEmp = S.employees.find(e => e.role === "admin" || e.role === "manager");
+        if (adminEmp?.email) {
+          sendEmail("swap_request", adminEmp.email, {
+            requesterName: emp.name,
+            targetDate: fmtDate(targetDates[0]) + " — " + fmtDate(targetDates[6]),
+            shiftLabel: "בקשה מיוחדת לחסימות",
+            note: msg
+          });
+        }
+        document.getElementById("block-special-request").value = "";
+        toast("הבקשה נשלחה למנהל ✓");
+      },{style:"width:100%"})
+    ]);
+    wrap.appendChild(reqCard);
   }
 
   else if (S.empViewTab==="vacation") {
@@ -2261,41 +2330,39 @@ function viewConstraintsModal() {
       modal.appendChild(gc);
     }
 
-    // ── Allowed block slots ──
-    const blockCard = div("card",[e("div",{class:"form-label",style:"margin-bottom:8px"},"אילו משמרות העובד מורשה לחסום")],{style:"margin-bottom:12px"});
-    blockCard.appendChild(e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"בחר את המשמרות שהעובד יכול לחסום (רק אלה יוצגו לו)"));
+    // ── Block limits per day group ──
+    const limCard = div("card",[
+      e("div",{class:"form-label",style:"margin-bottom:10px"},"🚫 כמות חסימות מותרת לעובד")
+    ],{style:"margin-bottom:12px"});
 
-    const blockTable = e("table",{class:"constraint-table"});
-    const bhead = e("tr",[e("th",{style:"text-align:right"},"")]);
-    SHIFTS.forEach(sh => bhead.appendChild(e("th",{style:`color:${sh.color}`},sh.label)));
-    blockTable.appendChild(bhead);
+    // Weekday limits (Sun-Thu)
+    limCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#3B82F6;margin-bottom:8px"},"ראשון — חמישי"));
+    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:14px"},SHIFTS.map(sh => 
+      div("form-col",[
+        e("label",{style:"font-size:11px;font-weight:700;color:"+sh.color},sh.label),
+        e("input",{class:"fi",type:"number",min:0,max:5,value:localBlockLimits.weekday?.[sh.id]??3,style:"text-align:center",
+          oninput:ev=>{if(!localBlockLimits.weekday)localBlockLimits.weekday={};localBlockLimits.weekday[sh.id]=parseInt(ev.target.value)||0;}})
+      ])
+    )));
 
-    [...WEEKDAYS, ...WEEKEND].forEach(day => {
-      const row = e("tr",[e("td",{},day)]);
-      SHIFTS.forEach(sh => {
-        const allowed = (localAllowedBlocks[day]||[]).includes(sh.id);
-        const cell = e("button",{
-          class:"constraint-cell"+(allowed?" allowed":""),
-          style:"--sc:"+sh.color,
-          onclick:()=>{
-            if(!localAllowedBlocks[day]) localAllowedBlocks[day]=[];
-            if(allowed) localAllowedBlocks[day]=localAllowedBlocks[day].filter(s=>s!==sh.id);
-            else localAllowedBlocks[day].push(sh.id);
-            rebuildModal();
-          }
-        }, allowed?"✓":"—");
-        row.appendChild(e("td",{},[cell]));
-      });
-      blockTable.appendChild(row);
-    });
-    blockCard.appendChild(blockTable);
-    blockCard.appendChild(e("div",{style:"font-size:11px;color:#475569;margin-top:6px"},"✓ = מותר לחסום · — = אסור לחסום"));
-    modal.appendChild(blockCard);
+    // Weekend limits (Fri-Sat)
+    limCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#A855F7;margin-bottom:8px"},"שישי — שבת"));
+    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:8px"},SHIFTS.map(sh => 
+      div("form-col",[
+        e("label",{style:"font-size:11px;font-weight:700;color:"+sh.color},sh.label),
+        e("input",{class:"fi",type:"number",min:0,max:2,value:localBlockLimits.weekend?.[sh.id]??1,style:"text-align:center",
+          oninput:ev=>{if(!localBlockLimits.weekend)localBlockLimits.weekend={};localBlockLimits.weekend[sh.id]=parseInt(ev.target.value)||0;}})
+      ])
+    )));
+    limCard.appendChild(e("div",{style:"font-size:11px;color:#475569"},"0 = אסור לחסום כלל"));
+    modal.appendChild(limCard);
+
+    // Block slots are now controlled by block_limits above
 
     // Actions
     modal.appendChild(div("form-actions",[
       btn("btn-add","שמור הגבלות",async()=>{
-        await saveConstraints(emp.id,{maxShifts:localMax,maxPerShift:localPerShift,dayConstraints:localDC,availability:localAvail,preferredShifts:localPref,maxBlocks:localMaxBlocks,allowedBlockSlots:localAllowedBlocks});
+        await saveConstraints(emp.id,{maxShifts:localMax,maxPerShift:localPerShift,dayConstraints:localDC,availability:localAvail,preferredShifts:localPref,maxBlocks:localMaxBlocks,allowedBlockSlots:localAllowedBlocks,blockLimits:localBlockLimits});
       },{style:"flex:1"}),
       btn("btn-sm btn-sm-gray","ביטול",()=>{S.constraintsEmp=null;render();})
     ]));
