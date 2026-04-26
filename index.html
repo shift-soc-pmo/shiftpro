@@ -1100,7 +1100,7 @@ function viewHeader() {
       div("user-area",[
         e("div",{},[
           e("div",{class:"user-name"},S.profile?.name||""),
-          e("div",{class:"user-role-label"},S.profile?.role==="admin"?"מנהל ראשי":S.profile?.role==="manager"?"מנהל משמרת":"עובד")
+          e("div",{class:"user-role-label"},S.profile?.role==="admin"||S.profile?.role==="manager"?"מנהל":"עובד")
         ]),
         btn("btn-logout","יציאה",handleLogout)
       ])
@@ -1511,7 +1511,7 @@ function viewEmployees() {
         ]),
         e("td",{style:"color:#94A3B8"},emp.email||"—"),
         e("td",{style:"color:#64748B"},emp.id_number||"—"),
-        e("td",{},emp.role==="admin"?"מנהל ראשי 👑":emp.role==="manager"?"מנהל 🔑":"עובד"),
+        e("td",{},emp.role==="admin"||emp.role==="manager"?"מנהל":"עובד"),
         e("td",{},[
           btn("btn-sm btn-sm-blue","✏️ הגבלות",()=>{S.constraintsEmp=emp;render();},{style:"margin-left:4px"}),
           emp.role!=="admin" ? e("select",{
@@ -1525,7 +1525,7 @@ function viewEmployees() {
             }
           },[
             e("option",{value:"employee",selected:emp.role==="employee"?"selected":null},"עובד"),
-            e("option",{value:"manager",selected:emp.role==="manager"?"selected":null},"מנהל 🔑")
+            e("option",{value:"admin",selected:emp.role==="admin"||emp.role==="manager"?"selected":null},"מנהל")
           ]) : e("span",{style:"font-size:11px;color:#64748B;margin-left:4px"},""),
           emp.id !== S.user.id ? btn("btn-sm btn-sm-red","🗑️",()=>deleteEmployee(emp.id)) : null
         ])
@@ -2123,7 +2123,7 @@ function viewEmpView() {
         emp.name.split(" ").map(n=>n[0]).join("").slice(0,2)),
       e("div",{style:"flex:1"},[
         e("div",{style:"font-weight:800;font-size:17px;color:#E2E8F0"},emp.name),
-        e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},emp.role==="admin"?"מנהל ראשי 👑":emp.role==="manager"?"מנהל 🔑":"עובד"),
+        e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},emp.role==="admin"||emp.role==="manager"?"מנהל":"עובד"),
         emp.email?e("div",{style:"font-size:11px;color:#475569;margin-top:2px"},"✉️ "+emp.email):null
       ])
     ])
