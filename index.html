@@ -294,7 +294,7 @@ let S = {
   constraintsEmp: null,
   empViewId: null, empViewTab: "shifts",
   showAddEmp: false, showAddVac: false, showSwapModal: false,
-  showPublishModal: false, swapMyShift: null, swapTargetShift: null, empSwapTab: "swap", showShiftEditor: false, publishType: 'final',
+  showPublishModal: false, swapMyShift: null, swapTargetShift: null, empSwapTab: "swap", handoverShift: null, handoverTarget: null, showShiftEditor: false, publishType: 'final',
   newEmp: {name:"",email:"",idNumber:"",phone:"",role:"employee"},
   newVac: {employeeId:"",startDate:"",endDate:"",reason:""},
   availDraft: {}, availTargetOffset: 1,
@@ -1607,6 +1607,40 @@ function viewVacations() {
     ]));
   }
 
+  // ── ייצוא חופשות מאושרות ──
+  const approved = S.vacations.filter(v => v.status === "approved");
+  if (approved.length > 0) {
+    wrap.appendChild(div("form-actions",[
+      btn("btn-green","📤 ייצוא CSV",()=>{
+        const icons = {vacation:"חופשה",reserve:"מילואים",exam:"מבחן"};
+        let csv = "\u05E9\u05DD,\u05E1\u05D5\u05D2,\u05DE\u05EA\u05D0\u05E8\u05D9\u05DA,\u05E2\u05D3 \u05EA\u05D0\u05E8\u05D9\u05DA,\u05E1\u05D8\u05D8\u05D5\u05E1,\u05E1\u05D9\u05D1\u05D4"+String.fromCharCode(10);
+        approved.forEach(v=>{
+          const emp=getEmp(v.employee_id);
+          csv+="\""+((emp?.name)||"?")+"\""+","+"\""+((icons[v.type])||"חופשה")+"\""+","+v.start_date+","+v.end_date+","+"מאושר"+","+"\""+((v.reason)||"")+"\""+String.fromCharCode(10);
+        });
+        const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=url;a.download="absences_approved.csv";a.click();URL.revokeObjectURL(url);
+        toast("קובץ CSV הורד ✓");
+      },{style:"flex:1"}),
+      btn("btn-sm btn-sm-blue","🖨️ הדפסה",()=>{
+        const icons = {vacation:"🌴 חופשה",reserve:"🎖️ מילואים",exam:"📝 מבחן"};
+        let html = "<!DOCTYPE html><html dir=rtl lang=he><head><meta charset=UTF-8><style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse}th{background:#1E293B;color:white;padding:8px;text-align:right}td{padding:6px 8px;border:1px solid #ddd}</style></head><body>";
+        html += "<h1>היעדרויות מאושרות — "+(S.business?.name||"")+"</h1>";
+        html += "<table><tr><th>שם</th><th>סוג</th><th>מתאריך</th><th>עד תאריך</th><th>סיבה</th></tr>";
+        approved.forEach(v=>{
+          const emp=getEmp(v.employee_id);
+          html+="<tr><td>"+(emp?.name||"?")+"</td><td>"+(icons[v.type]||"חופשה")+"</td><td>"+v.start_date+"</td><td>"+v.end_date+"</td><td>"+(v.reason||"")+"</td></tr>";
+        });
+        html+="</table></body></html>";
+        const win=window.open("","_blank");
+        if(win){win.document.write(html);win.document.close();setTimeout(()=>win.print(),500);}
+        toast("פותח להדפסה ✓");
+      },{style:"flex:1"})
+    ],{style:"margin-bottom:14px"}));
+  }
+
   // ── היסטוריה ──
   const history = S.vacations.filter(v => v.status !== "pending");
   if (history.length > 0) {
@@ -1790,7 +1824,7 @@ function viewSwaps(forceEmployee) {
 
   // Tabs
   const tabs = div("",[],{style:"display:flex;gap:6px;margin-bottom:14px"});
-  [{id:"swap",label:"🔄 החלפה הדדית"},{id:"join",label:"➕ הצטרפות למשמרת"}].forEach(t=>{
+  [{id:"swap",label:"🔄 החלפה"},{id:"handover",label:"📤 מסירה"},{id:"join",label:"➕ הצטרפות"}].forEach(t=>{
     const isActive = S.empSwapTab===t.id;
     tabs.appendChild(e("button",{
       style:`flex:1;padding:10px;border-radius:10px;border:1px solid ${isActive?"#3B82F6":"#334155"};background:${isActive?"#3B82F622":"#1E293B"};color:${isActive?"#60A5FA":"#64748B"};font-family:inherit;font-weight:700;font-size:13px`,
@@ -1930,6 +1964,110 @@ function viewSwaps(forceEmployee) {
       }
       wrap.appendChild(card);
     }
+  }
+
+  // ── מסירת משמרת ──
+  if (S.empSwapTab === "handover") {
+    const card = div("card",[e("div",{class:"card-title"},"📤 מסירת משמרת")]);
+    card.appendChild(e("div",{style:"font-size:13px;color:#64748B;margin-bottom:14px"},"בחר משמרת שלך שאתה רוצה למסור, ואז בחר למי:"));
+
+    const myEmpId = S.testAsEmployee ? S.empViewId : S.user.id;
+
+    // My future shifts
+    const myHandoverShifts = [];
+    Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
+      SHIFTS.forEach(sh=>{
+        if((S.schedule[date]?.[sh.id]||[]).includes(myEmpId)){
+          myHandoverShifts.push({date,shift:sh});
+        }
+      });
+    });
+
+    if (myHandoverShifts.length === 0) {
+      card.appendChild(e("div",{style:"text-align:center;padding:20px;color:#64748B"},"אין לך משמרות עתידיות למסירה"));
+    } else {
+      // Pick shift to give
+      card.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"1️⃣ איזו משמרת למסור?"));
+      const myGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"});
+      myHandoverShifts.forEach(({date,shift})=>{
+        const key = date+"|"+shift.id;
+        const sel = S.handoverShift===key;
+        const dt = new Date(date+"T00:00:00");
+        myGrid.appendChild(e("button",{
+          style:`padding:8px 12px;border-radius:10px;border:1px solid ${sel?shift.color:shift.color+"44"};background:${sel?shift.color+"33":"#0F172A"};color:${sel?shift.color:"#94A3B8"};font-family:inherit;font-size:12px;font-weight:700`,
+          onclick:()=>{S.handoverShift=sel?null:key;S.handoverTarget=null;render();}
+        },[
+          e("div",{},DAYS[dt.getDay()]+" "+dt.getDate()+"/"+(dt.getMonth()+1)),
+          e("div",{style:"font-size:10px;opacity:0.8"},shift.label)
+        ]));
+      });
+      card.appendChild(myGrid);
+
+      // Pick who can take it
+      if (S.handoverShift) {
+        const [hDate,hShiftId] = S.handoverShift.split("|");
+        const hShift = SHIFT_BY_ID[hShiftId];
+
+        card.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"2️⃣ למי למסור? (רק מי שיכול)"));
+
+        const eligible = S.employees.filter(emp=>{
+          if(emp.id === myEmpId) return false;
+          const conflict = checkShiftConflict(hDate, hShiftId, emp.id);
+          return !conflict;
+        });
+
+        if (eligible.length === 0) {
+          card.appendChild(e("div",{style:"color:#64748B;font-size:13px;padding:10px 0"},"אין עובדים שיכולים לקחת את המשמרת הזו"));
+        } else {
+          const empGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"});
+          eligible.forEach(emp=>{
+            const col = ec(empIdx(emp.id));
+            const sel = S.handoverTarget===emp.id;
+            empGrid.appendChild(e("button",{
+              style:`padding:8px 14px;border-radius:10px;border:1px solid ${sel?col:col+"44"};background:${sel?col+"33":"#0F172A"};color:${sel?col:"#94A3B8"};font-family:inherit;font-size:13px;font-weight:700`,
+              onclick:()=>{S.handoverTarget=sel?null:emp.id;render();}
+            },emp.name));
+          });
+          card.appendChild(empGrid);
+        }
+      }
+
+      // Submit
+      if (S.handoverShift && S.handoverTarget) {
+        const noteInp2 = e("input",{class:"fi",placeholder:"הערה (אופציונלי)",style:"margin-bottom:12px"});
+        card.appendChild(noteInp2);
+        card.appendChild(btn("btn-add","📤 שלח לאישור מנהל",async()=>{
+          const [hDate,hShiftId] = S.handoverShift.split("|");
+          const {error} = await sb.from("swaps").insert([{
+            business_id: S.profile.business_id,
+            giver_id: myEmpId,
+            taker_id: S.handoverTarget,
+            date: hDate,
+            shift: hShiftId,
+            note: noteInp2.value||null,
+            status: "pending_approval"
+          }]);
+          if(error){toast("שגיאה: "+error.message,"err");return;}
+          // Email manager
+          const adminEmp4 = S.employees.find(e=>e.role==="admin"||e.role==="manager");
+          const giverEmp = getEmp(myEmpId);
+          const takerEmp = getEmp(S.handoverTarget);
+          const hShift = SHIFT_BY_ID[hShiftId];
+          if(adminEmp4?.email){
+            sendEmail("swap_request",adminEmp4.email,{
+              requesterName: giverEmp?.name||"עובד",
+              targetDate: fmtDate(hDate),
+              shiftLabel: hShift?.label+" — מסירה ל-"+(takerEmp?.name||"עובד"),
+              note: noteInp2.value||""
+            });
+          }
+          S.handoverShift=null;S.handoverTarget=null;
+          await loadSwapRequests();
+          toast("בקשת מסירה נשלחה למנהל ✓");render();
+        },{style:"width:100%"}));
+      }
+    }
+    wrap.appendChild(card);
   }
 
   // ── הצטרפות למשמרת ──
