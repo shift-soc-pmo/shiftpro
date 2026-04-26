@@ -106,7 +106,7 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
 .form-actions{display:flex;gap:8px;margin-top:12px}
 
 /* SCHEDULE GRID */
-.sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;max-width:100%}
 .sched-table{width:100%;border-collapse:collapse;min-width:650px}
 .sched-table th{text-align:center;padding:10px 6px;font-size:11px;font-weight:600;color:#64748B;border-bottom:1px solid #334155}
 .sched-table th.day-header{min-width:70px}
@@ -176,8 +176,12 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
   .section-header > div:last-child > button{flex:1;font-size:12px;padding:8px 10px}
 
   .scroll-hint{display:block !important}
+  /* Fix schedule page overflow */
+  .app{overflow-x:hidden !important}
+  body{overflow-x:hidden !important}
+  
   /* Schedule — horizontal scroll */
-  .sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+  .sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;max-width:100%}
   .sched-table{min-width:540px}
   .sched-table th.day-header{min-width:58px;padding:6px 3px}
   .sched-table td{padding:4px 2px}
@@ -1174,7 +1178,7 @@ function viewSchedule() {
   wrap.appendChild(hdr);
 
   // Grid
-  const gridCard = div("card",[],{style:"padding:8px;overflow:hidden"});
+  const gridCard = div("card",[],{style:"padding:8px;overflow:hidden;max-width:100%"});
   const gridWrap = div("sched-wrap");
   // Scroll hint on mobile
   gridWrap.appendChild(e("div",{style:"font-size:10px;color:#475569;text-align:center;margin-bottom:4px;display:none",class:"scroll-hint"},"← גלול לצדדים לראות את כל הימים →"));
@@ -1605,6 +1609,45 @@ function viewVacations() {
 }
 
 // ── SWAPS ──
+async function processManagerDecision(swap, isApproved) {
+  if (isApproved) {
+    if (swap.target_date && swap.giver_id) {
+      const empsA = S.schedule[swap.date]?.[swap.shift];
+      if (empsA) { const i = empsA.indexOf(swap.giver_id); if (i > -1) empsA[i] = swap.taker_id; }
+      const empsB = S.schedule[swap.target_date]?.[swap.target_shift];
+      if (empsB) { const i = empsB.indexOf(swap.taker_id); if (i > -1) empsB[i] = swap.giver_id; }
+    } else if (swap.giver_id) {
+      const emps = S.schedule[swap.date]?.[swap.shift];
+      if (emps) { const i = emps.indexOf(swap.giver_id); if (i > -1) emps[i] = swap.taker_id; }
+    } else {
+      const emps = S.schedule[swap.date]?.[swap.shift];
+      if (emps && !emps.includes(swap.taker_id)) emps.push(swap.taker_id);
+    }
+    saveScheduleToDB();
+  }
+
+  await sb.from("swaps").update({status: isApproved?"approved":"rejected"}).eq("id", swap.id);
+
+  const taker = getEmp(swap.taker_id);
+  if (taker?.email) {
+    const sh = SHIFT_BY_ID[swap.shift];
+    sendEmail(
+      isApproved ? "vacation_approved" : "vacation_rejected",
+      taker.email,
+      {
+        empName: taker.name,
+        startDate: fmtDate(swap.date) + " — " + (sh?.label||swap.shift),
+        endDate: swap.target_date ? fmtDate(swap.target_date) : fmtDate(swap.date),
+        reason: isApproved ? "בקשת החילוף אושרה ועודכנה בסידור" : "בקשת החילוף נדחתה"
+      }
+    );
+  }
+
+  toast(isApproved ? "✓ אושר ועודכן בסידור" : "נדחה");
+  await loadSwapRequests();
+  render();
+}
+
 function viewSwaps(forceEmployee) {
   const wrap = e("div");
   wrap.appendChild(div("page-title", ["🔄 חילופים והצטרפות"], {style:"margin-bottom:16px"}));
