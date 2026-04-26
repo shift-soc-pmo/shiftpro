@@ -531,9 +531,13 @@ async function loadVacations() {
 
 async function loadSwapRequests() {
   if (!S.profile?.business_id) return;
-  const { data } = await sb.from("swap_requests").select("*")
+  // Load from both tables
+  const { data: d1 } = await sb.from("swaps").select("*")
     .eq("business_id", S.profile.business_id).order("created_at", {ascending:false});
-  S.swapRequests = data || [];
+  const { data: d2 } = await sb.from("swap_requests").select("*")
+    .eq("business_id", S.profile.business_id).order("created_at", {ascending:false});
+  S.swaps = d1 || [];
+  S.swapRequests = d2 || [];
 }
 
 async function loadSchedule() {
