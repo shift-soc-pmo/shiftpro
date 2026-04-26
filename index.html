@@ -840,6 +840,15 @@ async function addVacation() {
   render();
 }
 
+async function deleteVacRequest(id) {
+  if (!confirm("למחוק את הבקשה?")) return;
+  const { error } = await sb.from("vacations").delete().eq("id", id);
+  if (error) { toast("שגיאה במחיקה: " + error.message, "err"); return; }
+  S.vacations = S.vacations.filter(v => v.id !== id);
+  toast("הבקשה נמחקה ✓");
+  render();
+}
+
 async function updateVacStatus(id, status) {
   await sb.from("vacations").update({status, approved_by: S.user.id}).eq("id",id);
   await loadVacations();
@@ -1179,6 +1188,52 @@ function viewSchedule() {
   tbl.appendChild(thead);
 
   const tbody = e("tbody");
+
+  // ── שורת העדרויות ──
+  if (isManager()) {
+    const absRow = e("tr");
+    absRow.appendChild(e("td",{style:"border-right:2px solid #F59E0B44;padding-right:12px"},[
+      e("div",{style:"font-weight:700;font-size:12px;color:#F59E0B"},"🌴 העדרויות"),
+      e("div",{style:"font-size:9px;color:#475569"},"חופשה / מילואים")
+    ]));
+    wdDisplay.forEach(date => {
+      const td = e("td",{style:"vertical-align:top;padding:4px 2px"});
+      const dayAbs = S.vacations.filter(v =>
+        v.status === "approved" && v.type !== "exam" &&
+        date >= v.start_date && date <= v.end_date
+      );
+      const dayExams = S.vacations.filter(v =>
+        v.type === "exam" && v.status === "approved" &&
+        date >= v.start_date && date <= v.end_date
+      );
+      const dayBlocks = (S.availSubmissions||[]).filter(b => b.date === date);
+
+      if (dayAbs.length === 0 && dayExams.length === 0 && dayBlocks.length === 0) {
+        td.appendChild(e("div",{style:"font-size:10px;color:#334155;text-align:center;padding:4px"},"—"));
+      } else {
+        dayAbs.forEach(v => {
+          const emp = getEmp(v.employee_id);
+          if (!emp) return;
+          const icon = v.type === "reserve" ? "🎖️" : "🌴";
+          td.appendChild(e("div",{style:"font-size:10px;font-weight:700;color:#F59E0B;white-space:nowrap;margin-bottom:1px"},icon+" "+emp.name.split(" ")[0]));
+        });
+        dayExams.forEach(v => {
+          const emp = getEmp(v.employee_id);
+          if (!emp) return;
+          td.appendChild(e("div",{style:"font-size:10px;font-weight:700;color:#10B981;white-space:nowrap;margin-bottom:1px"},"📝 "+emp.name.split(" ")[0]));
+        });
+        dayBlocks.forEach(b => {
+          const emp = getEmp(b.employee_id);
+          const sh = SHIFT_BY_ID[b.shift];
+          if (!emp) return;
+          td.appendChild(e("div",{style:"font-size:9px;color:#EF4444;white-space:nowrap;margin-bottom:1px"},"🚫 "+emp.name.split(" ")[0]+(sh?" "+sh.label:"")));
+        });
+      }
+      absRow.appendChild(td);
+    });
+    tbody.appendChild(absRow);
+  }
+
   SHIFTS.forEach(shift => {
     const row = e("tr");
     row.appendChild(e("td",{style:"border-right:2px solid "+shift.color+"44;padding-right:12px"},[
@@ -1468,71 +1523,79 @@ function viewEmployees() {
 // ── VACATIONS ──
 function viewVacations() {
   const wrap = e("div");
-  wrap.appendChild(div("section-header",[
-    div("page-title",["🌴 חופשות"]),
-    btn("btn-add","+ בקשת חופשה",()=>{S.showAddVac=!S.showAddVac;render();})
-  ]));
+  wrap.appendChild(div("page-title",["🌴 ניהול העדרויות"],{style:"margin-bottom:16px"}));
 
-  if (S.showAddVac) {
-    const form = div("card",[div("card-title",["בקשת חופשה חדשה"])]);
-    const empSel = e("select",{class:"fi",onchange:ev=>{S.newVac.employeeId=ev.target.value}});
-    empSel.appendChild(e("option",{value:""},"בחר עובד"));
-    S.employees.forEach(emp => empSel.appendChild(e("option",{value:emp.id,selected:S.newVac.employeeId===emp.id?"selected":null},emp.name)));
-    form.appendChild(div("form-col",[e("label",{class:"form-label"},"עובד *"),empSel],{style:"margin-bottom:12px"}));
-    form.appendChild(div("form-row",[
-      div("form-col",[e("label",{class:"form-label"},"מתאריך *"),e("input",{class:"fi",type:"date",min:today(),value:S.newVac.startDate,oninput:ev=>{S.newVac.startDate=ev.target.value}})]),
-      div("form-col",[e("label",{class:"form-label"},"עד תאריך *"),e("input",{class:"fi",type:"date",min:today(),value:S.newVac.endDate,oninput:ev=>{S.newVac.endDate=ev.target.value}})])
-    ]));
-    form.appendChild(div("form-col",[e("label",{class:"form-label"},"סיבה"),e("input",{class:"fi",placeholder:"אופציונלי",value:S.newVac.reason,oninput:ev=>{S.newVac.reason=ev.target.value}})],{style:"margin-bottom:12px"}));
-    form.appendChild(div("form-actions",[
-      btn("btn-add","שלח",addVacation,{style:"flex:1"}),
-      btn("btn-sm btn-sm-gray","ביטול",()=>{S.showAddVac=false;render();})
-    ]));
-    wrap.appendChild(form);
-  }
+  const icons = { vacation: "🌴", reserve: "🎖️", exam: "📝" };
+  const names = { vacation: "חופשה", reserve: "מילואים", exam: "מבחן" };
+  const colors = { vacation: "#10B981", reserve: "#6366F1", exam: "#F59E0B" };
 
-  const pending = S.vacations.filter(v=>v.status==="pending");
-  const rest = S.vacations.filter(v=>v.status!=="pending");
-
+  // ── בקשות ממתינות לאישור ──
+  const pending = S.vacations.filter(v => v.status === "pending");
   if (pending.length > 0) {
-    const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#F59E0B;margin-bottom:12px"},`⏳ ממתינות לאישור (${pending.length})`)]);
+    const pCard = div("card",[
+      e("div",{style:"font-weight:800;font-size:15px;color:#F59E0B;margin-bottom:14px"},`⏳ ממתינות לאישור (${pending.length})`)
+    ]);
     pending.forEach(vac => {
       const emp = getEmp(vac.employee_id);
-      card.appendChild(e("div",{style:"display:flex;align-items:center;gap:10px;background:#0F172A;border-radius:10px;padding:10px 14px;margin-bottom:6px"},[
-        e("div",{style:"flex:1"},[
-          e("div",{style:"font-weight:700;font-size:13px"},emp?.name||"—"),
-          e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},vac.start_date+(vac.start_date!==vac.end_date?" — "+vac.end_date:"")),
-          vac.reason?e("div",{style:"font-size:11px;color:#475569;margin-top:2px"},vac.reason):null
+      const col = colors[vac.type] || "#10B981";
+      const icon = icons[vac.type] || "🌴";
+      const name = names[vac.type] || "חופשה";
+      const isExam = vac.type === "exam";
+
+      pCard.appendChild(e("div",{style:`background:#0F172A;border:1px solid ${col}44;border-radius:14px;padding:14px;margin-bottom:10px`},[
+        e("div",{style:"display:flex;justify-content:space-between;align-items:start;margin-bottom:10px"},[
+          e("div",{},[
+            e("div",{style:`font-weight:800;font-size:15px;color:${col}`},`${icon} ${name}`),
+            e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-top:4px"},emp?.name || "עובד"),
+            e("div",{style:"font-size:12px;color:#64748B;margin-top:2px"},
+              fmtDate(vac.start_date) + (vac.start_date !== vac.end_date ? " — " + fmtDate(vac.end_date) : "")),
+            vac.reason ? e("div",{style:"font-size:12px;color:#94A3B8;font-style:italic;margin-top:4px"},`"${vac.reason}"`) : null,
+          ]),
+          isExam ? e("div",{style:"background:#F59E0B22;border:1px solid #F59E0B44;border-radius:8px;padding:4px 8px;font-size:10px;color:#FCD34D;font-weight:700"},"לא חוסם") : null
         ]),
-        btn("btn-sm btn-sm-green","אשר",()=>updateVacStatus(vac.id,"approved")),
-        btn("btn-sm btn-sm-red","דחה",()=>updateVacStatus(vac.id,"rejected"))
+        div("form-actions",[
+          btn("btn-green","✓ אשר",()=>updateVacStatus(vac.id,"approved"),{style:"flex:1"}),
+          btn("btn-sm btn-sm-red","✗ דחה",()=>updateVacStatus(vac.id,"rejected"),{style:"flex:1"})
+        ])
       ]));
     });
-    wrap.appendChild(card);
+    wrap.appendChild(pCard);
+  } else {
+    wrap.appendChild(div("card",[
+      e("div",{style:"text-align:center;padding:20px;color:#64748B;font-size:13px"},"אין בקשות ממתינות לאישור ✓")
+    ]));
   }
 
-  if (rest.length > 0) {
-    const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:12px"},"היסטוריה")]);
-    const tbl = e("table",[e("thead",[e("tr",[e("th",{},"עובד"),e("th",{},"תאריכים"),e("th",{},"סטטוס")])])]);
-    const tbody = e("tbody");
-    rest.slice(0,20).forEach(vac => {
+  // ── היסטוריה ──
+  const history = S.vacations.filter(v => v.status !== "pending");
+  if (history.length > 0) {
+    const hCard = div("card",[
+      e("div",{style:"font-weight:700;font-size:14px;color:#94A3B8;margin-bottom:14px"},"📜 היסטוריה")
+    ]);
+    history.sort((a,b) => (b.start_date||"").localeCompare(a.start_date||"")).forEach(vac => {
       const emp = getEmp(vac.employee_id);
-      const st = vac.status==="approved"?"approved":vac.status==="rejected"?"rejected":"pending";
-      const label = vac.status==="approved"?"אושרה ✓":vac.status==="rejected"?"נדחתה ✗":"ממתין";
-      tbody.appendChild(e("tr",[
-        e("td",{style:"font-weight:600"},emp?.name||"—"),
-        e("td",{style:"color:#94A3B8"},vac.start_date+(vac.start_date!==vac.end_date?" — "+vac.end_date:"")),
-        e("td",{},[e("span",{class:"status-badge status-"+st},label)])
+      const isApp = vac.status === "approved";
+      const col = colors[vac.type] || "#10B981";
+      const icon = icons[vac.type] || "🌴";
+
+      hCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A"},[
+        e("div",{},[
+          e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},[
+            e("span",{style:`color:${col};margin-left:6px`},icon),
+            emp?.name || "עובד"
+          ]),
+          e("div",{style:"font-size:11px;color:#64748B;margin-top:2px"},
+            fmtDate(vac.start_date) + (vac.start_date !== vac.end_date ? " — " + fmtDate(vac.end_date) : ""))
+        ]),
+        e("div",{style:"display:flex;align-items:center;gap:6px"},[
+          e("span",{class:"status-badge status-"+(isApp?"approved":"rejected")},isApp?"אושר":"נדחה"),
+          btn("btn-sm btn-sm-red","🗑️",()=>deleteVacRequest(vac.id),{style:"padding:4px 6px"})
+        ])
       ]));
     });
-    tbl.appendChild(tbody);
-    card.appendChild(tbl);
-    wrap.appendChild(card);
+    wrap.appendChild(hCard);
   }
 
-  if (S.vacations.length===0) {
-    wrap.appendChild(div("card",[e("div",{style:"text-align:center;padding:40px;color:#64748B"},["אין בקשות חופשה עדיין"])]));
-  }
   return wrap;
 }
 
