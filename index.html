@@ -583,15 +583,18 @@ async function sendEmail(type, toEmail, data) {
   if (!toEmail) return;
   const settingMap = {
     "schedule_published": "notif_publish",
+    "schedule_initial": "notif_publish",
     "vacation_approved": "notif_vac_approved",
     "vacation_rejected": "notif_vac_approved",
     "swap_request": "notif_swap",
+    "absence_request": "notif_swap",
   };
   const settingKey = settingMap[type];
   if (settingKey && localStorage.getItem(settingKey) === "0") return;
 
   try {
-    await fetch("https://zszlqoisokjgvplrcbic.supabase.co/functions/v1/rapid-action", {
+    console.log("📧 Sending email:", type, "to:", toEmail);
+    const resp = await fetch("https://zszlqoisokjgvplrcbic.supabase.co/functions/v1/rapid-action", {
       method: "POST",
       mode: "cors",
       headers: {
@@ -600,8 +603,10 @@ async function sendEmail(type, toEmail, data) {
       },
       body: JSON.stringify({ type, to: toEmail, data: { ...data, appUrl: APP_URL } })
     });
+    const result = await resp.json().catch(()=>({}));
+    console.log("📧 Email result:", resp.status, result);
   } catch (err) {
-    console.warn("Email send failed:", err);
+    console.warn("📧 Email send failed:", err);
   }
 }
 
@@ -795,7 +800,8 @@ async function addVacation() {
 
   const type = S.newVac.type || "vacation";
   // Manager can pick employee, employee defaults to self
-  const empId = S.newVac.employeeId || S.user.id;
+  // In test mode, use the viewed employee's ID
+  const empId = S.newVac.employeeId || (S.testAsEmployee ? S.empViewId : S.user.id);
 
   const payload = {
     employee_id: empId,
@@ -812,10 +818,11 @@ async function addVacation() {
 
   // שלח מייל למנהל
   const adminEmp = S.employees.find(e => e.role === "admin" || e.role === "manager");
-  if (adminEmp?.email && empId === S.user.id) {
+  if (adminEmp?.email) {
+    const reqEmp = getEmp(empId) || S.profile;
     const typeLabel = type === "reserve" ? "מילואים 🎖️" : type === "exam" ? "מבחן 📝" : "חופשה 🌴";
     sendEmail("absence_request", adminEmp.email, {
-      requesterName: S.profile.name,
+      requesterName: reqEmp.name,
       typeLabel,
       type,
       startDate: S.newVac.startDate,
