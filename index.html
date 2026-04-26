@@ -1822,7 +1822,7 @@ function viewSwaps(forceEmployee) {
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
       SHIFTS.forEach(sh=>{
         const empIds = S.schedule[date]?.[sh.id]||[];
-        if(!empIds.includes(S.user.id) && empIds.length > 0){
+        if(!empIds.includes(S.user.id)){
           availableShifts.push({date,shift:sh,empIds});
         }
       });
@@ -1837,7 +1837,7 @@ function viewSwaps(forceEmployee) {
           e("div",{},[
             e("div",{style:`font-weight:800;font-size:14px;color:${shift.color}`},DAYS[dt.getDay()]+" "+dt.getDate()+" — "+shift.label),
             e("div",{style:"font-size:11px;color:#64748B;margin-top:3px"},
-              `משובצים: ${empIds.map(id=>getEmp(id)?.name.split(" ")[0]||"?").join(", ")}`)
+              empIds.length > 0 ? `משובצים: ${empIds.map(id=>getEmp(id)?.name.split(" ")[0]||"?").join(", ")}` : "אין משובצים עדיין")
           ]),
           btn("btn-sm btn-sm-blue","+ הצטרף",async()=>{
             const {error}=await sb.from("swaps").insert([{
