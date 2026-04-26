@@ -106,8 +106,8 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
 .form-actions{display:flex;gap:8px;margin-top:12px}
 
 /* SCHEDULE GRID */
-.sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.sched-table{width:100%;border-collapse:collapse;min-width:480px}
+.sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.sched-table{width:100%;border-collapse:collapse;min-width:650px}
 .sched-table th{text-align:center;padding:10px 6px;font-size:11px;font-weight:600;color:#64748B;border-bottom:1px solid #334155}
 .sched-table th.day-header{min-width:70px}
 .sched-table td{padding:6px 4px;vertical-align:top;border:1px solid transparent;cursor:pointer;transition:all 0.15s;text-align:center}
@@ -175,8 +175,9 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
   .section-header > div:last-child{width:100%;display:flex;flex-wrap:wrap;gap:6px}
   .section-header > div:last-child > button{flex:1;font-size:12px;padding:8px 10px}
 
+  .scroll-hint{display:block !important}
   /* Schedule — horizontal scroll */
-  .sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .sched-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
   .sched-table{min-width:540px}
   .sched-table th.day-header{min-width:58px;padding:6px 3px}
   .sched-table td{padding:4px 2px}
@@ -1152,8 +1153,10 @@ function viewSchedule() {
   wrap.appendChild(hdr);
 
   // Grid
-  const gridCard = div("card");
+  const gridCard = div("card",[],{style:"padding:8px;overflow:hidden"});
   const gridWrap = div("sched-wrap");
+  // Scroll hint on mobile
+  gridWrap.appendChild(e("div",{style:"font-size:10px;color:#475569;text-align:center;margin-bottom:4px;display:none",class:"scroll-hint"},"← גלול לצדדים לראות את כל הימים →"));
   const tbl = e("table",{class:"sched-table"});
   const thead = e("thead");
   const hrow = e("tr",[e("th",{style:"width:90px"},"משמרת")]);
@@ -2262,9 +2265,12 @@ function viewConstraintsModal() {
   let localPerShift = JSON.parse(JSON.stringify(emp.max_per_shift||{}));
   let localAvail = [...(emp.availability||DAYS)];
   let localPref = [...(emp.preferred_shifts||[])];
-  let localMaxBlocks = emp.max_blocks_per_week ?? 2;
+  let localMaxBlocks = emp.max_blocks_per_week ?? 99;
+  let localBlockLimits = JSON.parse(JSON.stringify(emp.block_limits || {
+    weekday: { morning: 3, afternoon: 3, night: 1 },
+    weekend: { morning: 1, afternoon: 1, night: 1 }
+  }));
   let localAllowedBlocks = JSON.parse(JSON.stringify(emp.allowed_block_slots||{}));
-  // allowed_block_slots: { "ראשון": ["morning","afternoon"], "שישי": ["morning"] }
 
   const modal = div("modal");
   const mh = div("modal-header",[
