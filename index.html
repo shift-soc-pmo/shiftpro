@@ -1478,7 +1478,7 @@ function viewEmployees() {
       div("form-col",[e("label",{class:"form-label"},"תעודת זהות"),e("input",{class:"fi",placeholder:"000000000",value:S.newEmp.idNumber,oninput:ev=>{S.newEmp.idNumber=ev.target.value}})]),
       div("form-col",[e("label",{class:"form-label"},"תפקיד"),e("select",{class:"fi",onchange:ev=>{S.newEmp.role=ev.target.value}},[
         e("option",{value:"employee",selected:S.newEmp.role==="employee"?"selected":null},"עובד"),
-        e("option",{value:"manager",selected:S.newEmp.role==="manager"?"selected":null},"מנהל משמרת")
+        e("option",{value:"admin",selected:S.newEmp.role==="admin"?"selected":null},"מנהל")
       ])])
     ]);
     form.appendChild(r1); form.appendChild(r2);
