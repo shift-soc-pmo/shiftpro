@@ -1810,6 +1810,20 @@ function viewSwaps(forceEmployee) {
           if(error){toast("שגיאה: "+error.message,"err");return;}
           S.swapMyShift=null;S.swapTargetShift=null;
           await loadSwapRequests();
+          // Send email to manager
+          const adminEmp3 = S.employees.find(e=>e.role==="admin"||e.role==="manager");
+          if(adminEmp3?.email){
+            const viewingEmp2 = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
+            const mySh = SHIFT_BY_ID[myShiftId];
+            const tSh = SHIFT_BY_ID[tShiftId];
+            const tEmp = getEmp(tEmpId);
+            sendEmail("swap_request",adminEmp3.email,{
+              requesterName: viewingEmp2?.name || S.profile.name,
+              targetDate: fmtDate(myDate)+" ("+mySh?.label+") ⇆ "+fmtDate(tDate)+" ("+tSh?.label+")",
+              shiftLabel: "החלפה הדדית עם "+(tEmp?.name||"עובד"),
+              note: noteInp.value||""
+            });
+          }
           toast("בקשת ההחלפה נשלחה למנהל ✓");render();
         },{style:"width:100%"}));
       }
@@ -1853,6 +1867,17 @@ function viewSwaps(forceEmployee) {
             }]);
             if(error){toast("שגיאה: "+error.message,"err");return;}
             await loadSwapRequests();
+            // Send email to manager
+            const adminEmp2 = S.employees.find(e=>e.role==="admin"||e.role==="manager");
+            if(adminEmp2?.email){
+              const viewingEmp = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
+              sendEmail("swap_request",adminEmp2.email,{
+                requesterName: viewingEmp?.name || S.profile.name,
+                targetDate: fmtDate(date),
+                shiftLabel: shift.label+" ("+shift.start+"–"+shift.end+") — בקשת הצטרפות",
+                note: ""
+              });
+            }
             toast("הבקשה נשלחה למנהל ✓");render();
           })
         ]));
