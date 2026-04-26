@@ -1029,12 +1029,8 @@ function viewLogin() {
   // Switch links
   if (!isReg && !isEmpReg) {
     card.appendChild(div("switch-link",[
-      "עסק חדש? ",
-      e("a",{onclick:()=>{S.loginMode="register";render();}},"הרשמת מנהל →")
-    ]));
-    card.appendChild(div("switch-link",[
-      "עובד? ",
-      e("a",{onclick:()=>{S.loginMode="emp_register";render();}},"הצטרף עם קוד →")
+      "עובד חדש? ",
+      e("a",{onclick:()=>{S.loginMode="emp_register";render();}},"הצטרף עם קוד הזמנה →")
     ]));
   } else {
     card.appendChild(div("switch-link",[
