@@ -503,7 +503,8 @@ async function loadAll(user) {
   S.business = profile.business;
   S.inviteCode = profile.business_id ? generateInviteCode(profile.business_id) : null;
 
-  await Promise.all([loadEmployees(), loadVacations(), loadSwapRequests(), loadSchedule()]);
+  await loadEmployees();
+  await Promise.all([loadVacations(), loadSwapRequests(), loadSchedule()]);
   // Role-based default view
   if (S.profile.role === "employee") {
     S.view = "empview";
@@ -523,9 +524,8 @@ async function loadEmployees() {
 }
 
 async function loadVacations() {
-  const ids = S.employees.map(e=>e.id);
-  if (!ids.length) { S.vacations=[]; return; }
-  const { data } = await sb.from("vacations").select("*").in("employee_id", ids);
+  if (!S.profile?.business_id) return;
+  const { data } = await sb.from("vacations").select("*").eq("business_id", S.profile.business_id);
   S.vacations = data || [];
 }
 
@@ -1018,9 +1018,10 @@ function viewHeader() {
   const tabs = empOnly ? [
     {id:"empview",  icon:"📋", label:"המשמרות שלי"},
     {id:"schedule", icon:"📅", label:"סידור"},
-    {id:"calendar", icon:"🗓️", label:"חודש"},
-    {id:"vacations",icon:"🌴", label:"חופשות"},
+    {id:"blocks",   icon:"🚫", label:"חסימות"},
+    {id:"vacations",icon:"🌴", label:"היעדרויות"},
     {id:"swaps",    icon:"🔄", label:"חילופים"},
+    {id:"emp_settings", icon:"⚙️", label:"הגדרות"},
   ] : [
     {id:"home",     icon:"🏠", label:"בית"},
     {id:"schedule", icon:"📅", label:"סידור"},
@@ -2925,6 +2926,57 @@ function viewCalendar() {
 }
 
 // ══════════════════════════════════════════════════════
+// EMPLOYEE SETTINGS
+// ══════════════════════════════════════════════════════
+function viewEmpSettings() {
+  const wrap = e("div");
+  wrap.appendChild(div("page-title",["⚙️ הגדרות"],{style:"margin-bottom:16px"}));
+
+  // Change password
+  const passCard = div("card",[e("div",{class:"card-title"},"🔐 שינוי סיסמה")]);
+  const newPass = e("input",{class:"fi",type:"password",placeholder:"סיסמה חדשה (לפחות 6 תווים)",style:"margin-bottom:10px"});
+  const confPass = e("input",{class:"fi",type:"password",placeholder:"אישור סיסמה חדשה",style:"margin-bottom:12px"});
+  passCard.appendChild(div("form-col",[e("label",{class:"form-label"},"סיסמה חדשה"),newPass],{style:"margin-bottom:10px"}));
+  passCard.appendChild(div("form-col",[e("label",{class:"form-label"},"אישור סיסמה"),confPass],{style:"margin-bottom:12px"}));
+  passCard.appendChild(btn("btn-add","🔐 שמור סיסמה חדשה",async()=>{
+    if (!newPass.value || newPass.value.length < 6) { toast("סיסמה חייבת להיות לפחות 6 תווים","err"); return; }
+    if (newPass.value !== confPass.value) { toast("הסיסמאות לא תואמות","err"); return; }
+    const {error} = await sb.auth.updateUser({password: newPass.value});
+    if (error) { toast("שגיאה: "+error.message,"err"); return; }
+    newPass.value=""; confPass.value="";
+    toast("סיסמה עודכנה בהצלחה ✓");
+  },{style:"width:100%"}));
+  wrap.appendChild(passCard);
+
+  // Install PWA
+  const pwaCard = div("card",[e("div",{class:"card-title"},"📱 התקנה על הטלפון")]);
+  pwaCard.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"התקן את Shift SOC PMO כאפליקציה על מסך הבית"));
+  if (S.pwaPrompt) {
+    pwaCard.appendChild(btn("btn-purple","📱 התקן אפליקציה",async()=>{
+      S.pwaPrompt.prompt();
+      const {outcome}=await S.pwaPrompt.userChoice;
+      if(outcome==="accepted"){S.pwaPrompt=null;toast("אפליקציה הותקנה ✓");}
+      render();
+    },{style:"width:100%"}));
+  } else {
+    pwaCard.appendChild(e("div",{style:"background:#1E3A5F;border-radius:10px;padding:14px"},[
+      e("div",{style:"font-weight:700;font-size:13px;color:#60A5FA;margin-bottom:8px"},"כיצד להתקין:"),
+      e("div",{style:"font-size:12px;color:#94A3B8;line-height:1.8"},[
+        e("div",{},"📱 iPhone: לחץ על שתף ← הוסף למסך הבית"),
+        e("div",{},"🤖 Android: לחץ על תפריט ← הוסף למסך הבית"),
+        e("div",{},"💻 Chrome: לחץ על + בשורת הכתובת")
+      ])
+    ]));
+  }
+  wrap.appendChild(pwaCard);
+
+  // Logout
+  wrap.appendChild(btn("btn-sm btn-sm-red","יציאה מהמערכת",handleLogout,{style:"width:100%;margin-top:16px;padding:12px"}));
+
+  return wrap;
+}
+
+// ══════════════════════════════════════════════════════
 // RENDER
 // ══════════════════════════════════════════════════════
 function render() {
@@ -2943,9 +2995,13 @@ function render() {
     else if(S.view==="calendar")  main.appendChild(viewCalendar());
     else if(S.view==="employees" && isManager()) main.appendChild(viewEmployees());
     else if(S.view==="employees" && !isManager()) { S.view="empview"; main.appendChild(viewEmpView()); }
-    else if(S.view==="vacations") main.appendChild(isManager() ? viewVacations() : viewEmpVacations());
-    else if(S.view==="swaps")     main.appendChild(viewSwaps(!isManager()));
+    else if(S.view==="vacations" && !isManager()) { S.empViewTab="vacation"; main.appendChild(viewEmpView()); }
+    else if(S.view==="vacations") main.appendChild(viewVacations());
+    else if(S.view==="swaps" && !isManager()) { S.empViewTab="swaps_emp"; main.appendChild(viewEmpView()); }
+    else if(S.view==="swaps")     main.appendChild(viewSwaps());
     else if(S.view==="stats")     main.appendChild(viewStats());
+    else if(S.view==="blocks")    { S.empViewTab="avail"; main.appendChild(viewEmpView()); }
+    else if(S.view==="emp_settings") main.appendChild(viewEmpSettings());
     else if(S.view==="empview")   main.appendChild(viewEmpView());
     else if(S.view==="settings")  main.appendChild(viewSettings());
 
