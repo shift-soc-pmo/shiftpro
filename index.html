@@ -1843,6 +1843,16 @@ function viewSwaps(forceEmployee) {
             const empIds = S.schedule[date]?.[sh.id]||[];
             empIds.forEach(empId=>{
               if(empId!==S.user.id){
+                const reqId = S.testAsEmployee ? S.empViewId : S.user.id;
+                // Check: can I take their shift?
+                const c1 = checkShiftConflict(date, sh.id, reqId);
+                if (c1) return;
+                // Check: can they take my shift? (only if my shift is selected)
+                if (S.swapMyShift) {
+                  const [myDate, myShiftId] = S.swapMyShift.split("|");
+                  const c2 = checkShiftConflict(myDate, myShiftId, empId);
+                  if (c2) return;
+                }
                 otherShifts.push({date,shift:sh,empId});
               }
             });
@@ -1931,7 +1941,10 @@ function viewSwaps(forceEmployee) {
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
       SHIFTS.forEach(sh=>{
         const empIds = S.schedule[date]?.[sh.id]||[];
-        if(!empIds.includes(S.user.id)){
+        const empIdJoin = S.testAsEmployee ? S.empViewId : S.user.id;
+        if(!empIds.includes(empIdJoin)){
+            const conflict = checkShiftConflict(date, sh.id, empIdJoin);
+            if (conflict) return;
           availableShifts.push({date,shift:sh,empIds});
         }
       });
@@ -2200,9 +2213,11 @@ function viewEmpView() {
     wd.forEach(date => {
       const dt = new Date(date+"T00:00:00");
       const isToday = date===today();
+      const fullDate = dt.getDate()+"/"+(dt.getMonth()+1);
       hrow.appendChild(e("th",{class:"day-header",style:isToday?"color:#60A5FA":""},[
-        e("div",{style:"font-size:10px"},DAYS[dt.getDay()].slice(0,2)),
-        e("div",{style:"font-size:15px;font-weight:800"},String(dt.getDate()))
+        e("div",{style:"font-size:11px;font-weight:600"},DAYS[dt.getDay()]),
+        e("div",{style:"font-size:16px;font-weight:900"},String(dt.getDate())),
+        e("div",{style:"font-size:9px;color:#64748B"},fullDate)
       ]));
     });
     thead.appendChild(hrow);
@@ -2234,6 +2249,25 @@ function viewEmpView() {
   }
 
   else if (S.empViewTab==="avail") {
+    // Check deadline
+    const dlDay = S.business?.deadline_day;
+    const dlTime = S.business?.deadline_time || "20:00";
+    const now = new Date();
+    const nowDay = now.getDay();
+    const nowTime = String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+    const isPastDeadline = dlDay !== null && dlDay !== undefined && (nowDay > dlDay || (nowDay === dlDay && nowTime > dlTime));
+
+    if (isPastDeadline) {
+      const card = div("card",[
+        e("div",{style:"text-align:center;padding:30px"},[
+          e("div",{style:"font-size:40px;margin-bottom:12px"},"⏰"),
+          e("div",{style:"font-weight:800;font-size:18px;color:#EF4444;margin-bottom:8px"},"הדדליין עבר!"),
+          e("div",{style:"font-size:13px;color:#64748B"},"לא ניתן להגיש חסימות אחרי יום "+DAYS[dlDay]+" בשעה "+dlTime),
+          e("div",{style:"font-size:12px;color:#475569;margin-top:10px"},"לבקשות מיוחדות — פנה למנהל")
+        ])
+      ]);
+      wrap.appendChild(card);
+    } else {
     const targetOffset = S.availTargetOffset || 1;
     const targetDates = getWeekDates(S.weekOffset + targetOffset);
     const targetStart = targetDates[0];
@@ -2402,6 +2436,8 @@ function viewEmpView() {
     }
 
     wrap.appendChild(card);
+
+    } // end deadline else
 
     // History
     const myPastBlocks = (S.availSubmissions||[]).filter(b=>b.employee_id===emp.id);
