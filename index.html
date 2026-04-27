@@ -1142,6 +1142,11 @@ function viewHome() {
   const totalAssigned = wd.reduce((t,d) =>
     t + SHIFTS.reduce((s,sh)=>s+(S.schedule[d]?.[sh.id]?.length||0),0), 0);
   const wrap = e("div");
+  // החזרת הברכה למנהל
+  wrap.appendChild(e("div",{style:"margin-bottom:20px"},[
+    e("div",{style:"font-size:13px;color:#64748B"}, new Date().toLocaleDateString("he-IL",{weekday:"long",day:"numeric",month:"long",year:"numeric"})),
+    e("div",{style:"font-weight:900;font-size:26px;color:#E2E8F0;margin-top:4px"}, "שלום " + (S.profile?.name||"").split(" ")[0] + " 👋"),
+  ]));
 
 
   // KPIs
@@ -2361,6 +2366,12 @@ function viewEmpView() {
   )));
 
   if (S.empViewTab==="shifts") {
+
+    // החזרת הברכה לעובד
+    wrap.appendChild(e("div",{style:"margin-bottom:20px"},[
+      e("div",{style:"font-size:13px;color:#64748B"}, new Date().toLocaleDateString("he-IL",{weekday:"long",day:"numeric",month:"long",year:"numeric"})),
+      e("div",{style:"font-weight:900;font-size:26px;color:#E2E8F0;margin-top:4px"}, "שלום " + (S.profile?.name||"").split(" ")[0] + " 👋"),
+    ]));
     
     // My shifts this week
     const myShifts = [];
