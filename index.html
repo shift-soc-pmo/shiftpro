@@ -486,12 +486,17 @@ async function loadAll(user) {
   const { data: profile } = await sb.from("profiles")
     .select("*, business:businesses(*)").eq("id", user.id).single();
   if (!profile) { S.view="login"; render(); return; }
+  
+  // 🛡️ הגנה: אם למשתמש המחובר חסר שם במסד הנתונים, ניתן לו שם זמני
+  profile.name = profile.name || "משתמש ללא שם";
+  
   S.profile = profile;
   S.business = profile.business;
   S.inviteCode = profile.business_id ? generateInviteCode(profile.business_id) : null;
 
   await loadEmployees();
   await Promise.all([loadVacations(), loadSwapRequests(), loadSchedule()]);
+  
   // Role-based default view
   if (S.profile.role === "employee") {
     S.view = "empview";
@@ -507,7 +512,12 @@ async function loadEmployees() {
   const { data } = await sb.from("profiles")
     .select("*").eq("business_id", S.profile.business_id)
     .eq("is_deleted", false).order("name");
-  S.employees = data || [];
+  
+  // 🛡️ הגנה: עוברים על כל העובדים ומוודאים שיש להם שם כדי למנוע קריסות
+  S.employees = (data || []).map(emp => {
+    emp.name = emp.name || "עובד ללא שם";
+    return emp;
+  });
 }
 
 async function loadVacations() {
