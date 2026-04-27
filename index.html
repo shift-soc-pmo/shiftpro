@@ -2598,12 +2598,13 @@ function viewEmpView() {
           if (specialMsg) {
             const adminEmp = S.employees.find(e=>e.role==="admin"||e.role==="manager");
             if (adminEmp?.email) {
-              sendEmail("swap_request",adminEmp.email,{
-                requesterName: emp.name,
-                targetDate: fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6]),
-                shiftLabel: "בקשה מיוחדת לחסימות",
-                note: specialMsg
-              });
+              sendEmail("block_message", adminEmp?.email, {
+              requesterName: emp.name,
+              targetDate: fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6]),
+              shiftLabel: "בקשה מיוחדת לחסימות",
+              note: specialMsg
+            });
+
             }
           }
           S.availDraft={}; S.blockReasons={};
