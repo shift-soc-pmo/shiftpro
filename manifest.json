@@ -2,8 +2,6 @@
   "name": "Shift SOC Prime Minister Office",
   "short_name": "Shift SOC PMO",
   "description": "מערכת ניהול משמרות",
-  "start_url": "/shiftpro/",
-  "scope": "/shiftpro/",
   "display": "standalone",
   "background_color": "#0F172A",
   "theme_color": "#0F172A",
