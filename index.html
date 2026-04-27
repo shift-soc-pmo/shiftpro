@@ -1725,6 +1725,47 @@ async function processManagerDecision(swap, isApproved) {
   render();
 }
 
+// ── אישור/דחייה של העובד השני (Peer) ──
+async function processPeerDecision(swap, isApproved) {
+  const newStatus = isApproved ? "pending_manager" : "rejected";
+  const { error } = await sb.from("swaps").update({status: newStatus}).eq("id", swap.id);
+  if (error) { toast("שגיאה: " + error.message, "err"); return; }
+
+  // אם העובד אישר, עכשיו שולחים את המייל למנהל!
+  if (isApproved) {
+    const adminEmp = S.employees.find(e => e.role === "admin" || e.role === "manager");
+    const giverEmp = getEmp(swap.giver_id);
+    const takerEmp = getEmp(swap.taker_id);
+    const sh = SHIFT_BY_ID[swap.shift];
+    const tSh = SHIFT_BY_ID[swap.target_shift];
+    
+    if (adminEmp?.email) {
+      let shiftLabel = "";
+      let tDateStr = fmtDate(swap.date);
+      
+      if (swap.target_date) {
+        shiftLabel = "החלפה הדדית בין " + giverEmp?.name + " ל-" + takerEmp?.name;
+        tDateStr = fmtDate(swap.date) + " (" + sh?.label + ") ⇆ " + fmtDate(swap.target_date) + " (" + tSh?.label + ")";
+      } else {
+        shiftLabel = sh?.label + " — מסירה מ-" + giverEmp?.name + " ל-" + takerEmp?.name;
+      }
+
+      sendEmail("swap_request", adminEmp.email, {
+        requesterName: "אישור אוטומטי (מערכת)",
+        targetDate: tDateStr,
+        shiftLabel: shiftLabel,
+        note: swap.note || ""
+      });
+    }
+    toast("אישרת את הבקשה! הועבר לאישור מנהל ✓");
+  } else {
+    toast("דחית את הבקשה");
+  }
+  
+  await loadSwapRequests();
+  render();
+}
+
 function viewSwaps(forceEmployee) {
   const wrap = e("div");
   wrap.appendChild(div("page-title", ["🔄 חילופים והצטרפות"], {style:"margin-bottom:16px"}));
@@ -1732,9 +1773,12 @@ function viewSwaps(forceEmployee) {
   const todayStr = today();
   if (!S.swaps) S.swaps = [];
 
-  // ══ מנהל: אישור בקשות ══
+  const myEmpId = S.testAsEmployee ? S.empViewId : S.user.id;
+
+  // ══ מנהל: אישור בקשות (התחנה הסופית) ══
   if (isManager() && !forceEmployee) {
-    const pending = S.swaps.filter(s => s.status === "pending_approval");
+    // מנהל רואה רק מה שממתין לו (או בקשות ישנות מהגרסה הקודמת)
+    const pending = S.swaps.filter(s => s.status === "pending_manager" || s.status === "pending_approval");
 
     if (pending.length === 0) {
       wrap.appendChild(div("card", [
@@ -1751,19 +1795,15 @@ function viewSwaps(forceEmployee) {
         const taker = getEmp(s.taker_id);
         const giverShift = SHIFT_BY_ID[s.shift];
         const takerShift = SHIFT_BY_ID[s.target_shift];
-        const isSwap = !!s.target_date; // החלפה הדדית
-        const isJoin = !s.giver_id;     // הצטרפות
+        const isSwap = !!s.target_date;
+        const isJoin = !s.giver_id;
 
         mCard.appendChild(e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:14px;padding:14px;margin-bottom:10px"},[
-          // כותרת הבקשה
           e("div",{style:"font-weight:800;font-size:14px;color:#E2E8F0;margin-bottom:10px"},
             isJoin ? `➕ ${taker?.name} מבקש להצטרף למשמרת` :
             isSwap ? `🔄 החלפה הדדית` : `📤 מסירת משמרת`
           ),
-
-          // פרטי הבקשה
           isSwap ? e("div",{style:"display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:12px"},[
-            // משמרת א׳
             e("div",{style:`background:${giverShift?.color}18;border:1px solid ${giverShift?.color}44;border-radius:10px;padding:10px;text-align:center`},[
               e("div",{style:"font-size:11px;color:#64748B;margin-bottom:2px"},"מוסר"),
               e("div",{style:`font-weight:800;font-size:13px;color:${giverShift?.color}`},giver?.name||"?"),
@@ -1771,7 +1811,6 @@ function viewSwaps(forceEmployee) {
               e("div",{style:`font-size:11px;font-weight:700;color:${giverShift?.color}`},giverShift?.label||s.shift)
             ]),
             e("div",{style:"font-size:20px;text-align:center"},"⇆"),
-            // משמרת ב׳
             e("div",{style:`background:${takerShift?.color}18;border:1px solid ${takerShift?.color}44;border-radius:10px;padding:10px;text-align:center`},[
               e("div",{style:"font-size:11px;color:#64748B;margin-bottom:2px"},"מקבל"),
               e("div",{style:`font-weight:800;font-size:13px;color:${takerShift?.color}`},taker?.name||"?"),
@@ -1779,7 +1818,6 @@ function viewSwaps(forceEmployee) {
               e("div",{style:`font-size:11px;font-weight:700;color:${takerShift?.color}`},takerShift?.label||s.target_shift)
             ])
           ]) :
-          // מסירה / הצטרפות
           e("div",{style:`background:${giverShift?.color||"#3B82F6"}18;border:1px solid ${giverShift?.color||"#3B82F6"}44;border-radius:10px;padding:10px;margin-bottom:12px;display:flex;gap:10px;align-items:center`},[
             e("div",{style:"flex:1"},[
               e("div",{style:"font-size:12px;color:#64748B"},isJoin?"מצטרף":"מוסר"),
@@ -1791,12 +1829,9 @@ function viewSwaps(forceEmployee) {
               e("div",{style:`font-weight:700;font-size:13px;color:${giverShift?.color||"#3B82F6"}`},giverShift?.label||s.shift)
             ])
           ]),
-
           s.note ? e("div",{style:"font-size:12px;color:#64748B;font-style:italic;margin-bottom:10px"},`"${s.note}"`):null,
-
-          // כפתורי אישור/דחייה
           div("form-actions",[
-            btn("btn-green","✓ אשר",()=>processManagerDecision(s,true),{style:"flex:1"}),
+            btn("btn-green","✓ אשר בסידור",()=>processManagerDecision(s,true),{style:"flex:1"}),
             btn("btn-sm btn-sm-red","✗ דחה",()=>processManagerDecision(s,false),{style:"flex:1"})
           ])
         ]));
@@ -1804,7 +1839,6 @@ function viewSwaps(forceEmployee) {
       wrap.appendChild(mCard);
     }
 
-    // היסטוריה למנהל
     const done = S.swaps.filter(s=>s.status==="approved"||s.status==="rejected").slice(0,5);
     if (done.length > 0) {
       const hCard = div("card",[e("div",{style:"font-weight:700;font-size:13px;color:#64748B;margin-bottom:10px"},"היסטוריה אחרונה")]);
@@ -1821,10 +1855,42 @@ function viewSwaps(forceEmployee) {
     return wrap;
   }
 
+  // ══ עובד: בקשות הממתינות לאישור שלי (Peer) ══
+  const incomingReqs = S.swaps.filter(s => s.status === "pending_peer" && s.taker_id === myEmpId);
+  if (incomingReqs.length > 0) {
+    const incCard = div("card", [
+      e("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:14px"},[
+        e("span",{style:"font-size:20px"},"📥"),
+        e("div",{style:"font-weight:800;font-size:15px;color:#60A5FA"},`בקשות שממתינות לאישורך (${incomingReqs.length})`)
+      ])
+    ],{style:"border:1px solid #3B82F644;background:#1E3A5F22"});
+
+    incomingReqs.forEach(s => {
+      const giver = getEmp(s.giver_id);
+      const giverShift = SHIFT_BY_ID[s.shift];
+      const takerShift = SHIFT_BY_ID[s.target_shift];
+      const isSwap = !!s.target_date;
+
+      incCard.appendChild(e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:10px"},[
+        e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},
+          isSwap ? `${giver?.name} מציע החלפה הדדית:` : `${giver?.name} רוצה למסור לך משמרת:`
+        ),
+        e("div",{style:"font-size:12px;color:#94A3B8;margin-bottom:10px"},[
+          e("div",{},`📅 לקבל: ${fmtDate(s.date)} — ${giverShift?.label}`),
+          isSwap ? e("div",{style:"margin-top:4px"},`📅 לתת: ${fmtDate(s.target_date)} — ${takerShift?.label}`) : null,
+        ]),
+        div("form-actions",[
+          btn("btn-green","✓ אשר (העבר למנהל)",()=>processPeerDecision(s,true),{style:"flex:1"}),
+          btn("btn-sm btn-sm-red","✗ דחה",()=>processPeerDecision(s,false),{style:"flex:1"})
+        ])
+      ]));
+    });
+    wrap.appendChild(incCard);
+  }
+
   // ══ עובד: הגשת בקשות ══
   if (!S.empSwapTab) S.empSwapTab = "swap";
 
-  // Tabs
   const tabs = div("",[],{style:"display:flex;gap:6px;margin-bottom:14px"});
   [{id:"swap",label:"🔄 החלפה"},{id:"handover",label:"📤 מסירה"},{id:"join",label:"➕ הצטרפות"}].forEach(t=>{
     const isActive = S.empSwapTab===t.id;
@@ -1838,13 +1904,12 @@ function viewSwaps(forceEmployee) {
   // ── החלפה הדדית ──
   if (S.empSwapTab === "swap") {
     const card = div("card",[e("div",{class:"card-title"},"🔄 בקשת החלפה הדדית")]);
-    card.appendChild(e("div",{style:"font-size:13px;color:#64748B;margin-bottom:14px"},"בחר את המשמרת שלך שאתה רוצה לתת, ואת המשמרת שאתה רוצה לקבל בתמורה."));
+    card.appendChild(e("div",{style:"font-size:13px;color:#64748B;margin-bottom:14px"},"בחר את המשמרת שתרצה לתת, ואת המשמרת שתרצה לקבל. תשלח בקשה לעובד, ואם יאשר - תעבור למנהל."));
 
-    // My shifts
     const myFutureShifts = [];
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
       SHIFTS.forEach(sh=>{
-        if((S.schedule[date]?.[sh.id]||[]).includes(S.user.id)){
+        if((S.schedule[date]?.[sh.id]||[]).includes(myEmpId)){
           myFutureShifts.push({date,shift:sh});
         }
       });
@@ -1854,7 +1919,6 @@ function viewSwaps(forceEmployee) {
       card.appendChild(e("div",{style:"text-align:center;padding:20px;color:#64748B;font-size:13px"},"אין לך משמרות עתידיות שניתן לתת."));
       wrap.appendChild(card);
     } else {
-      // Pick MY shift to give
       card.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"1️⃣ איזו משמרת שלך תרצה לתת?"));
       const myGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"});
       myFutureShifts.forEach(({date,shift})=>{
@@ -1870,7 +1934,6 @@ function viewSwaps(forceEmployee) {
       });
       card.appendChild(myGrid);
 
-      // Pick TARGET shift (other employee's shifts)
       if (S.swapMyShift) {
         card.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"2️⃣ איזו משמרת של מי אתה רוצה לקבל?"));
         const otherShifts = [];
@@ -1878,17 +1941,11 @@ function viewSwaps(forceEmployee) {
           SHIFTS.forEach(sh=>{
             const empIds = S.schedule[date]?.[sh.id]||[];
             empIds.forEach(empId=>{
-              if(empId!==S.user.id){
-                const reqId = S.testAsEmployee ? S.empViewId : S.user.id;
-                // Check: can I take their shift?
-                const c1 = checkShiftConflict(date, sh.id, reqId);
-                if (c1) return;
-                // Check: can they take my shift? (only if my shift is selected)
-                if (S.swapMyShift) {
-                  const [myDate, myShiftId] = S.swapMyShift.split("|");
-                  const c2 = checkShiftConflict(myDate, myShiftId, empId);
-                  if (c2) return;
-                }
+              if(empId!==myEmpId){
+                // Check conflicts
+                const [myDate, myShiftId] = S.swapMyShift.split("|");
+                if (checkShiftConflict(date, sh.id, myEmpId)) return;
+                if (checkShiftConflict(myDate, myShiftId, empId)) return;
                 otherShifts.push({date,shift:sh,empId});
               }
             });
@@ -1896,7 +1953,7 @@ function viewSwaps(forceEmployee) {
         });
 
         if (otherShifts.length === 0) {
-          card.appendChild(e("div",{style:"color:#64748B;font-size:13px;padding:10px 0"},"אין משמרות של עובדים אחרים."));
+          card.appendChild(e("div",{style:"color:#64748B;font-size:13px;padding:10px 0"},"אין משמרות פנויות להחלפה ללא התנגשויות."));
         } else {
           const targetGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"});
           otherShifts.forEach(({date,shift,empId})=>{
@@ -1917,51 +1974,41 @@ function viewSwaps(forceEmployee) {
         }
       }
 
-      // Note + Submit
       if (S.swapMyShift && S.swapTargetShift) {
         const noteInp = e("input",{class:"fi",placeholder:"הערה לבקשה (אופציונלי)",style:"margin-bottom:12px"});
         card.appendChild(noteInp);
-        card.appendChild(btn("btn-add","📤 שלח לאישור מנהל",async()=>{
+        card.appendChild(btn("btn-add","📤 שלח לאישור העובד",async()=>{
           const [myDate,myShiftId] = S.swapMyShift.split("|");
           const [tDate,tShiftId,tEmpId] = S.swapTargetShift.split("|");
 
-          // Validate both sides of the swap
-          const empId2 = S.testAsEmployee ? S.empViewId : S.user.id;
-          const conflict1 = checkShiftConflict(tDate, tShiftId, empId2);
-          if (conflict1) { toast("לא ניתן לקבל משמרת: "+conflict1,"err"); return; }
-          const conflict2 = checkShiftConflict(myDate, myShiftId, tEmpId);
-          if (conflict2) { toast("לא ניתן להחליף: "+conflict2,"err"); return; }
-
           const {error} = await sb.from("swaps").insert([{
             business_id: S.profile.business_id,
-            giver_id: empId2,
+            giver_id: myEmpId,
             taker_id: tEmpId,
             date: myDate,
             shift: myShiftId,
             target_date: tDate,
             target_shift: tShiftId,
             note: noteInp.value||null,
-            status: "pending_approval"
+            status: "pending_peer" // <-- הולך קודם לעובד
           }]);
 
           if(error){toast("שגיאה: "+error.message,"err");return;}
           S.swapMyShift=null;S.swapTargetShift=null;
           await loadSwapRequests();
-          // Send email to manager
-          const adminEmp3 = S.employees.find(e=>e.role==="admin"||e.role==="manager");
-          if(adminEmp3?.email){
-            const viewingEmp2 = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
-            const mySh = SHIFT_BY_ID[myShiftId];
-            const tSh = SHIFT_BY_ID[tShiftId];
-            const tEmp = getEmp(tEmpId);
-            sendEmail("swap_request",adminEmp3.email,{
-              requesterName: viewingEmp2?.name || S.profile.name,
-              targetDate: fmtDate(myDate)+" ("+mySh?.label+") ⇆ "+fmtDate(tDate)+" ("+tSh?.label+")",
-              shiftLabel: "החלפה הדדית עם "+(tEmp?.name||"עובד"),
+          
+          // שולח מייל לעובד השני
+          const takerEmp = getEmp(tEmpId);
+          if(takerEmp?.email){
+            const viewingEmp = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
+            sendEmail("swap_request", takerEmp.email, {
+              requesterName: viewingEmp?.name || S.profile.name,
+              targetDate: "החלפה: " + fmtDate(myDate) + " ⇆ " + fmtDate(tDate),
+              shiftLabel: "ממתין לאישורך באפליקציה",
               note: noteInp.value||""
             });
           }
-          toast("בקשת ההחלפה נשלחה למנהל ✓");render();
+          toast("הבקשה נשלחה לעובד ✓");render();
         },{style:"width:100%"}));
       }
       wrap.appendChild(card);
@@ -1971,11 +2018,8 @@ function viewSwaps(forceEmployee) {
   // ── מסירת משמרת ──
   if (S.empSwapTab === "handover") {
     const card = div("card",[e("div",{class:"card-title"},"📤 מסירת משמרת")]);
-    card.appendChild(e("div",{style:"font-size:13px;color:#64748B;margin-bottom:14px"},"בחר משמרת שלך שאתה רוצה למסור, ואז בחר למי:"));
+    card.appendChild(e("div",{style:"font-size:13px;color:#64748B;margin-bottom:14px"},"בחר משמרת למסירה, ואז בחר עובד. הבקשה תעבור לאישורו ואז למנהל."));
 
-    const myEmpId = S.testAsEmployee ? S.empViewId : S.user.id;
-
-    // My future shifts
     const myHandoverShifts = [];
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
       SHIFTS.forEach(sh=>{
@@ -1988,7 +2032,6 @@ function viewSwaps(forceEmployee) {
     if (myHandoverShifts.length === 0) {
       card.appendChild(e("div",{style:"text-align:center;padding:20px;color:#64748B"},"אין לך משמרות עתידיות למסירה"));
     } else {
-      // Pick shift to give
       card.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"1️⃣ איזו משמרת למסור?"));
       const myGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px"});
       myHandoverShifts.forEach(({date,shift})=>{
@@ -2005,17 +2048,13 @@ function viewSwaps(forceEmployee) {
       });
       card.appendChild(myGrid);
 
-      // Pick who can take it
       if (S.handoverShift) {
         const [hDate,hShiftId] = S.handoverShift.split("|");
-        const hShift = SHIFT_BY_ID[hShiftId];
-
         card.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"2️⃣ למי למסור? (רק מי שיכול)"));
 
         const eligible = S.employees.filter(emp=>{
           if(emp.id === myEmpId) return false;
-          const conflict = checkShiftConflict(hDate, hShiftId, emp.id);
-          return !conflict;
+          return !checkShiftConflict(hDate, hShiftId, emp.id);
         });
 
         if (eligible.length === 0) {
@@ -2034,11 +2073,10 @@ function viewSwaps(forceEmployee) {
         }
       }
 
-      // Submit
       if (S.handoverShift && S.handoverTarget) {
         const noteInp2 = e("input",{class:"fi",placeholder:"הערה (אופציונלי)",style:"margin-bottom:12px"});
         card.appendChild(noteInp2);
-        card.appendChild(btn("btn-add","📤 שלח לאישור מנהל",async()=>{
+        card.appendChild(btn("btn-add","📤 שלח לאישור העובד",async()=>{
           const [hDate,hShiftId] = S.handoverShift.split("|");
           const {error} = await sb.from("swaps").insert([{
             business_id: S.profile.business_id,
@@ -2047,44 +2085,41 @@ function viewSwaps(forceEmployee) {
             date: hDate,
             shift: hShiftId,
             note: noteInp2.value||null,
-            status: "pending_approval"
+            status: "pending_peer" // <-- הולך קודם לעובד
           }]);
           if(error){toast("שגיאה: "+error.message,"err");return;}
-          // Email manager
-          const adminEmp4 = S.employees.find(e=>e.role==="admin"||e.role==="manager");
-          const giverEmp = getEmp(myEmpId);
+          
+          // Email the taker
           const takerEmp = getEmp(S.handoverTarget);
-          const hShift = SHIFT_BY_ID[hShiftId];
-          if(adminEmp4?.email){
-            sendEmail("swap_request",adminEmp4.email,{
-              requesterName: giverEmp?.name||"עובד",
+          if(takerEmp?.email){
+            const viewingEmp = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
+            sendEmail("swap_request", takerEmp.email, {
+              requesterName: viewingEmp?.name||"עובד",
               targetDate: fmtDate(hDate),
-              shiftLabel: hShift?.label+" — מסירה ל-"+(takerEmp?.name||"עובד"),
+              shiftLabel: "ממתין לאישורך באפליקציה",
               note: noteInp2.value||""
             });
           }
           S.handoverShift=null;S.handoverTarget=null;
           await loadSwapRequests();
-          toast("בקשת מסירה נשלחה למנהל ✓");render();
+          toast("הבקשה נשלחה לעובד ✓");render();
         },{style:"width:100%"}));
       }
     }
     wrap.appendChild(card);
   }
 
-  // ── הצטרפות למשמרת ──
+  // ── הצטרפות למשמרת (ישירות למנהל) ──
   if (S.empSwapTab === "join") {
     const card = div("card",[e("div",{class:"card-title"},"➕ הצטרפות למשמרת")]);
-    card.appendChild(e("div",{style:"font-size:13px;color:#64748B;margin-bottom:14px"},"כל המשמרות שאתה לא משובץ אליהן — לחץ על אחת כדי לבקש להצטרף."));
+    card.appendChild(e("div",{style:"font-size:13px;color:#64748B;margin-bottom:14px"},"כל המשמרות שאתה לא משובץ אליהן — לחץ על אחת כדי לבקש להצטרף. (הבקשה עוברת ישירות למנהל)"));
 
     const availableShifts = [];
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
       SHIFTS.forEach(sh=>{
         const empIds = S.schedule[date]?.[sh.id]||[];
-        const empIdJoin = S.testAsEmployee ? S.empViewId : S.user.id;
-        if(!empIds.includes(empIdJoin)){
-            const conflict = checkShiftConflict(date, sh.id, empIdJoin);
-            if (conflict) return;
+        if(!empIds.includes(myEmpId)){
+            if (checkShiftConflict(date, sh.id, myEmpId)) return;
           availableShifts.push({date,shift:sh,empIds});
         }
       });
@@ -2099,19 +2134,18 @@ function viewSwaps(forceEmployee) {
           e("div",{},[
             e("div",{style:`font-weight:800;font-size:14px;color:${shift.color}`},DAYS[dt.getDay()]+" "+dt.getDate()+" — "+shift.label),
             e("div",{style:"font-size:11px;color:#64748B;margin-top:3px"},
-              empIds.length > 0 ? `משובצים: ${empIds.map(id=>getEmp(id)?.name.split(" ")[0]||"?").join(", ")}` : "אין משובצים עדיין")
+              empIds.length > 0 ? `משובצים: ${empIds.map(id=>getEmp(id)?.name.split(" ")[0]||"?").join(", ")}` : "אין משובצים")
           ]),
           btn("btn-sm btn-sm-blue","+ הצטרף",async()=>{
-            const empId = S.testAsEmployee ? S.empViewId : S.user.id;
-            const conflict = checkShiftConflict(date, shift.id, empId);
+            const conflict = checkShiftConflict(date, shift.id, myEmpId);
             if (conflict) { toast(conflict,"err"); return; }
 
             const {error}=await sb.from("swaps").insert([{
               business_id:S.profile.business_id,
-              taker_id:empId,
+              taker_id:myEmpId,
               giver_id:null,
               date,shift:shift.id,
-              status:"pending_approval"
+              status:"pending_manager" // <-- מיד למנהל
             }]);
             if(error){toast("שגיאה: "+error.message,"err");return;}
             await loadSwapRequests();
@@ -2122,7 +2156,7 @@ function viewSwaps(forceEmployee) {
               sendEmail("swap_request",adminEmp2.email,{
                 requesterName: viewingEmp?.name || S.profile.name,
                 targetDate: fmtDate(date),
-                shiftLabel: shift.label+" ("+shift.start+"–"+shift.end+") — בקשת הצטרפות",
+                shiftLabel: shift.label+" ("+shift.start+"–"+shift.end+") — הצטרפות",
                 note: ""
               });
             }
@@ -2134,17 +2168,23 @@ function viewSwaps(forceEmployee) {
     wrap.appendChild(card);
   }
 
-  // סטטוס הבקשות שלי
-  const myReqs = S.swaps.filter(s=>s.giver_id===S.user.id||s.taker_id===S.user.id);
+  // ── סטטוס הבקשות שהגשתי ──
+  const myReqs = S.swaps.filter(s=>s.giver_id===myEmpId||s.taker_id===myEmpId);
   if(myReqs.length>0){
     const sCard = div("card",[e("div",{style:"font-weight:700;font-size:13px;color:#64748B;margin-bottom:10px"},"⏳ הבקשות שלי")]);
-    myReqs.slice(0,5).forEach(s=>{
-      const isApp=s.status==="approved";const isRej=s.status==="rejected";
+    myReqs.slice(0,10).forEach(s=>{
       const sh=SHIFT_BY_ID[s.shift];
+      
+      let badgeClass = "pending";
+      let badgeText = "ממתין";
+      if (s.status === "approved") { badgeClass = "approved"; badgeText = "אושר"; }
+      else if (s.status === "rejected") { badgeClass = "rejected"; badgeText = "נדחה"; }
+      else if (s.status === "pending_peer") { badgeClass = "pending"; badgeText = "ממתין לעובד"; }
+      else if (s.status === "pending_manager") { badgeClass = "pending"; badgeText = "ממתין למנהל"; }
+
       sCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #0F172A"},[
         e("div",{style:"font-size:12px;color:#94A3B8"},`${fmtDate(s.date)} · ${sh?.label||s.shift}`),
-        e("span",{class:"status-badge status-"+(isApp?"approved":isRej?"rejected":"pending")},
-          isApp?"אושר":isRej?"נדחה":"ממתין")
+        e("span",{class:"status-badge status-"+badgeClass}, badgeText)
       ]));
     });
     wrap.appendChild(sCard);
@@ -2152,6 +2192,7 @@ function viewSwaps(forceEmployee) {
 
   return wrap;
 }
+
 
 // ── STATS ──
 function viewStats() {
