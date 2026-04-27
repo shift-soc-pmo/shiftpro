@@ -579,6 +579,8 @@ async function sendEmail(type, toEmail, data) {
     "vacation_rejected": "notif_vac_approved",
     "swap_request": "notif_swap",
     "absence_request": "notif_swap",
+    "block_message": "notif_swap",
+    "swap_decision": "notif_swap"
   };
   const settingKey = settingMap[type];
   if (settingKey && localStorage.getItem(settingKey) === "0") return;
@@ -696,31 +698,37 @@ async function handleLogout() {
 // ══════════════════════════════════════════════════════
 // SCHEDULE ACTIONS
 // ══════════════════════════════════════════════════════
-function checkShiftConflict(date, shift, empId) {
+function checkShiftConflict(date, shift, empId, ignoreDate = null, ignoreShift = null) {
   const emp = getEmp(empId);
   const name = emp?.name || "עובד";
 
-  // 1. Already assigned to another shift today
+  // פונקציית עזר שבודקת אם עובד משובץ, תוך התעלמות ממשמרת ספציפית (למקרה של חילוף)
+  const isAssigned = (d, s) => {
+    if (d === ignoreDate && s === ignoreShift) return false;
+    return (S.schedule[d]?.[s]||[]).includes(empId);
+  };
+
+  // 1. האם כבר משובץ למשמרת אחרת באותו יום?
   const todayShifts = SHIFTS.filter(sh =>
-    sh.id !== shift && (S.schedule[date]?.[sh.id]||[]).includes(empId)
+    sh.id !== shift && isAssigned(date, sh.id)
   );
   if (todayShifts.length > 0) return `${name} כבר משובץ ל${todayShifts[0].label} ביום זה`;
 
-  // 2. Night then morning
+  // 2. עבד לילה אתמול - לא יכול בוקר
   if (shift === "morning") {
     const yesterday = new Date(new Date(date+"T12:00:00").getTime() - 86400000);
     const yStr = yesterday.getFullYear()+"-"+String(yesterday.getMonth()+1).padStart(2,"0")+"-"+String(yesterday.getDate()).padStart(2,"0");
-    if ((S.schedule[yStr]?.["night"]||[]).includes(empId)) return `${name} עבד לילה אתמול — לא ניתן לשבץ לבוקר`;
+    if (isAssigned(yStr, "night")) return `${name} עבד לילה אתמול — לא ניתן לשבץ לבוקר`;
   }
 
-  // 3. Night shift — check morning tomorrow
+  // 3. משמרת לילה - בדיקה שלא עובד בוקר מחר
   if (shift === "night") {
     const tomorrow = new Date(new Date(date+"T12:00:00").getTime() + 86400000);
     const tStr = tomorrow.getFullYear()+"-"+String(tomorrow.getMonth()+1).padStart(2,"0")+"-"+String(tomorrow.getDate()).padStart(2,"0");
-    if ((S.schedule[tStr]?.["morning"]||[]).includes(empId)) return `${name} משובץ לבוקר מחר — לא ניתן לשבץ ללילה`;
+    if (isAssigned(tStr, "morning")) return `${name} משובץ לבוקר מחר — לא ניתן לשבץ ללילה`;
   }
 
-  return null; // no conflict
+  return null; // הכל תקין, אין התנגשות
 }
 
 function toggleCellEmp(date, shift, empId) {
@@ -1679,22 +1687,26 @@ function viewVacations() {
 // ── SWAPS ──
 async function processManagerDecision(swap, isApproved) {
   if (isApproved) {
-    // Validate before approving
-    if (swap.target_date && swap.giver_id) {
-      const c1 = checkShiftConflict(swap.date, swap.shift, swap.taker_id);
-      const c2 = checkShiftConflict(swap.target_date, swap.target_shift, swap.giver_id);
+    // אימות אחרון לפני אישור בסידור
+    if (swap.target_date && swap.giver_id) { // חילוף הדדי
+      // מקבל המשמרת (העובד השני) מקבל את המשמרת שלך, ומתעלמים מהמשמרת שהוא מוסר
+      const c1 = checkShiftConflict(swap.date, swap.shift, swap.taker_id, swap.target_date, swap.target_shift);
+      // אתה (מוסר המשמרת) מקבל את המשמרת שלו, ומתעלמים מהמשמרת שאתה מוסר
+      const c2 = checkShiftConflict(swap.target_date, swap.target_shift, swap.giver_id, swap.date, swap.shift);
+      
       if (c1) { toast("לא ניתן לאשר: "+c1,"err"); return; }
       if (c2) { toast("לא ניתן לאשר: "+c2,"err"); return; }
+      
       const empsA = S.schedule[swap.date]?.[swap.shift];
       if (empsA) { const i = empsA.indexOf(swap.giver_id); if (i > -1) empsA[i] = swap.taker_id; }
       const empsB = S.schedule[swap.target_date]?.[swap.target_shift];
       if (empsB) { const i = empsB.indexOf(swap.taker_id); if (i > -1) empsB[i] = swap.giver_id; }
-    } else if (swap.giver_id) {
+    } else if (swap.giver_id) { // מסירת משמרת
       const c = checkShiftConflict(swap.date, swap.shift, swap.taker_id);
       if (c) { toast("לא ניתן לאשר: "+c,"err"); return; }
       const emps = S.schedule[swap.date]?.[swap.shift];
       if (emps) { const i = emps.indexOf(swap.giver_id); if (i > -1) emps[i] = swap.taker_id; }
-    } else {
+    } else { // הצטרפות למשמרת
       const c = checkShiftConflict(swap.date, swap.shift, swap.taker_id);
       if (c) { toast("לא ניתן לאשר: "+c,"err"); return; }
       const emps = S.schedule[swap.date]?.[swap.shift];
@@ -1709,13 +1721,14 @@ async function processManagerDecision(swap, isApproved) {
   if (taker?.email) {
     const sh = SHIFT_BY_ID[swap.shift];
     sendEmail(
-      isApproved ? "vacation_approved" : "vacation_rejected",
+      "swap_decision", 
       taker.email,
       {
         empName: taker.name,
-        startDate: fmtDate(swap.date) + " — " + (sh?.label||swap.shift),
-        endDate: swap.target_date ? fmtDate(swap.target_date) : fmtDate(swap.date),
-        reason: isApproved ? "בקשת החילוף אושרה ועודכנה בסידור" : "בקשת החילוף נדחתה"
+        targetDate: swap.target_date ? fmtDate(swap.date) + " ⇆ " + fmtDate(swap.target_date) : fmtDate(swap.date),
+        shiftLabel: sh?.label || swap.shift,
+        statusText: isApproved ? "אושרה" : "נדחתה",
+        isApproved: isApproved
       }
     );
   }
@@ -1750,8 +1763,10 @@ async function processPeerDecision(swap, isApproved) {
         shiftLabel = sh?.label + " — מסירה מ-" + giverEmp?.name + " ל-" + takerEmp?.name;
       }
 
+     let emailTitle = swap.target_date ? "🔄 בקשת החלפה הדדית" : "📤 בקשת מסירת משמרת";
       sendEmail("swap_request", adminEmp.email, {
-        requesterName: "אישור אוטומטי (מערכת)",
+        title: emailTitle, // <--- הוספנו כותרת
+        requesterName: "הודעת מערכת",
         targetDate: tDateStr,
         shiftLabel: shiftLabel,
         note: swap.note || ""
@@ -1937,15 +1952,19 @@ function viewSwaps(forceEmployee) {
       if (S.swapMyShift) {
         card.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"2️⃣ איזו משמרת של מי אתה רוצה לקבל?"));
         const otherShifts = [];
-        Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
+       Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
           SHIFTS.forEach(sh=>{
             const empIds = S.schedule[date]?.[sh.id]||[];
             empIds.forEach(empId=>{
               if(empId!==myEmpId){
-                // Check conflicts
                 const [myDate, myShiftId] = S.swapMyShift.split("|");
-                if (checkShiftConflict(date, sh.id, myEmpId)) return;
-                if (checkShiftConflict(myDate, myShiftId, empId)) return;
+                
+                // בודק אם *אני* יכול לקחת את המשמרת *שלהם* (תוך התעלמות מהמשמרת שאני מוסר עכשיו)
+                if (checkShiftConflict(date, sh.id, myEmpId, myDate, myShiftId)) return;
+                
+                // בודק אם *הם* יכולים לקחת את המשמרת *שלי* (תוך התעלמות מהמשמרת שהם מוסרים לי)
+                if (checkShiftConflict(myDate, myShiftId, empId, date, sh.id)) return;
+                
                 otherShifts.push({date,shift:sh,empId});
               }
             });
@@ -2001,11 +2020,12 @@ function viewSwaps(forceEmployee) {
           const takerEmp = getEmp(tEmpId);
           if(takerEmp?.email){
             const viewingEmp = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
-            sendEmail("swap_request", takerEmp.email, {
-              requesterName: viewingEmp?.name || S.profile.name,
-              targetDate: "החלפה: " + fmtDate(myDate) + " ⇆ " + fmtDate(tDate),
+           sendEmail("swap_request", takerEmp.email, {
+              title: "📤 בקשת מסירת משמרת", // <--- הוספנו כותרת
+              requesterName: viewingEmp?.name||"עובד",
+              targetDate: fmtDate(hDate),
               shiftLabel: "ממתין לאישורך באפליקציה",
-              note: noteInp.value||""
+              note: noteInp2.value||""
             });
           }
           toast("הבקשה נשלחה לעובד ✓");render();
@@ -2094,10 +2114,11 @@ function viewSwaps(forceEmployee) {
           if(takerEmp?.email){
             const viewingEmp = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
             sendEmail("swap_request", takerEmp.email, {
-              requesterName: viewingEmp?.name||"עובד",
-              targetDate: fmtDate(hDate),
-              shiftLabel: "ממתין לאישורך באפליקציה",
-              note: noteInp2.value||""
+              title: "🔄 בקשת החלפה הדדית", // <--- הוספנו כותרת
+              requesterName: viewingEmp?.name || S.profile.name,
+              targetDate: "החלפה: " + fmtDate(myDate) + " ⇆ " + fmtDate(tDate),
+              shiftLabel: "יש לך בקשה הממתינה לאישור באפליקציה",
+              note: noteInp.value||""
             });
           }
           S.handoverShift=null;S.handoverTarget=null;
@@ -2153,12 +2174,13 @@ function viewSwaps(forceEmployee) {
             const adminEmp2 = S.employees.find(e=>e.role==="admin"||e.role==="manager");
             if(adminEmp2?.email){
               const viewingEmp = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
-              sendEmail("swap_request",adminEmp2.email,{
-                requesterName: viewingEmp?.name || S.profile.name,
-                targetDate: fmtDate(date),
-                shiftLabel: shift.label+" ("+shift.start+"–"+shift.end+") — הצטרפות",
-                note: ""
-              });
+            sendEmail("swap_request", adminEmp2.email, {
+              title: "➕ בקשת הצטרפות למשמרת", // <--- הוספנו כותרת
+              requesterName: viewingEmp?.name || S.profile.name,
+              targetDate: fmtDate(date),
+              shiftLabel: (shift.label + " (" + shift.start + "–" + shift.end + ")"),
+              note: ""
+            });
             }
             toast("הבקשה נשלחה למנהל ✓");render();
           })
