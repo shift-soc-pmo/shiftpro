@@ -604,34 +604,61 @@ async function sendEmail(type, toEmail, data) {
 let _saveTimer = null;
 function saveScheduleToDB() {
   clearTimeout(_saveTimer);
+  
   _saveTimer = setTimeout(async () => {
     if (!S.profile?.business_id) return;
     const weekDates = getWeekDates(S.weekOffset);
     const weekStart = weekDates[0];
 
-    let { data: sched } = await sb.from("schedules")
-      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
-    if (!sched) {
-      const { data: ns } = await sb.from("schedules")
-        .insert({business_id:S.profile.business_id, week_start:weekStart, created_by:S.user.id}).select().single();
-      sched = ns;
-    }
-    if (!sched) return;
+    try {
+      // משיכת או יצירת רשומת סידור לשבוע הנוכחי
+      let { data: sched, error: schedError } = await sb.from("schedules")
+        .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
+        
+      if (schedError && schedError.code !== "PGRST116") throw schedError; // מתעלם משגיאת "לא נמצא" רגילה
 
-    await sb.from("assignments").delete().eq("schedule_id", sched.id);
-    const rows = [];
-    Object.entries(S.schedule).forEach(([date, shifts]) => {
-      Object.entries(shifts).forEach(([shift, empIds]) => {
-        empIds.forEach(empId => {
-          const ch = S.customHours[date+"|"+shift+"|"+empId];
-          rows.push({ schedule_id:sched.id, employee_id:empId, date, shift,
-            custom_start: ch?.start||null, custom_end: ch?.end||null });
+      if (!sched) {
+        const { data: ns, error: insertError } = await sb.from("schedules")
+          .insert({business_id: S.profile.business_id, week_start: weekStart, created_by: S.user.id}).select().single();
+        if (insertError) throw insertError;
+        sched = ns;
+      }
+      
+      if (!sched) return;
+
+      // מחיקת כל השיבוצים הקודמים לאותו שבוע בשרת
+      const { error: deleteError } = await sb.from("assignments").delete().eq("schedule_id", sched.id);
+      if (deleteError) throw deleteError;
+
+      // הרכבת מערך השיבוצים החדש
+      const rows = [];
+      Object.entries(S.schedule).forEach(([date, shifts]) => {
+        // דילוג חכם: מתעלם ממאפיינים שאינם תאריכים (כמו id שנוסף בשיבוץ האוטומטי)
+        if (date === "id" || typeof shifts !== "object") return;
+        
+        Object.entries(shifts).forEach(([shift, empIds]) => {
+          if (!Array.isArray(empIds)) return;
+          empIds.forEach(empId => {
+            const ch = S.customHours[date+"|"+shift+"|"+empId];
+            rows.push({ schedule_id: sched.id, employee_id: empId, date, shift,
+              custom_start: ch?.start||null, custom_end: ch?.end||null });
+          });
         });
       });
-    });
-    if (rows.length) await sb.from("assignments").insert(rows);
+
+      // שמירת השיבוצים במסד הנתונים
+      if (rows.length > 0) {
+        const { error: assignError } = await sb.from("assignments").insert(rows);
+        if (assignError) throw assignError;
+      }
+
+    } catch (err) {
+      console.error("🚨 שגיאת שמירה:", err);
+      toast("שגיאה בשמירה למסד הנתונים: " + (err.message || err.details || ""), "err");
+    }
   }, 800);
 }
+
 
 async function handleLogin(email, password) {
   const {error} = await sb.auth.signInWithPassword({email,password});
