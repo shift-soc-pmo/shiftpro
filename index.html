@@ -2997,6 +2997,40 @@ function viewSettings() {
   }));
   wrap.appendChild(shiftCard);
 
+  // Deadline
+  const dlCard = div("card",[e("div",{class:"card-title"},"⏰ דדליין להגשת חסימות")]);
+  dlCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},"עובדים לא יוכלו להגיש חסימות אחרי הדדליין"));
+  if (!sd.deadlineDay) sd.deadlineDay = S.business?.deadline_day != null ? String(S.business.deadline_day) : "";
+  if (!sd.deadlineTime) sd.deadlineTime = S.business?.deadline_time || "20:00";
+
+  const dlDaySelect = e("select",{class:"fi",onchange:ev=>{sd.deadlineDay=ev.target.value}});
+  dlDaySelect.appendChild(e("option",{value:"",selected:sd.deadlineDay===""?"selected":null},"ללא דדליין"));
+  DAYS.forEach((d,i)=>{
+    dlDaySelect.appendChild(e("option",{value:String(i),selected:sd.deadlineDay===String(i)?"selected":null},"יום "+d));
+  });
+
+  dlCard.appendChild(div("form-row",[
+    div("form-col",[e("label",{class:"form-label"},"יום סגירה"),dlDaySelect]),
+    div("form-col",[e("label",{class:"form-label"},"שעת סגירה"),e("input",{class:"fi",type:"time",value:sd.deadlineTime,oninput:ev=>{sd.deadlineTime=ev.target.value}})])
+  ]));
+
+  // Show current deadline status
+  if (sd.deadlineDay !== "") {
+    dlCard.appendChild(e("div",{style:"background:#F59E0B18;border:1px solid #F59E0B33;border-radius:10px;padding:10px 14px;margin-top:12px;font-size:12px;color:#FCD34D"},
+      "⏰ דדליין נוכחי: יום " + DAYS[parseInt(sd.deadlineDay)] + " בשעה " + sd.deadlineTime));
+  }
+
+  dlCard.appendChild(btn("btn-add","שמור דדליין",async()=>{
+    await sb.from("businesses").update({
+      deadline_day: sd.deadlineDay==="" ? null : parseInt(sd.deadlineDay),
+      deadline_time: sd.deadlineTime
+    }).eq("id",S.profile.business_id);
+    S.business.deadline_day = sd.deadlineDay==="" ? null : parseInt(sd.deadlineDay);
+    S.business.deadline_time = sd.deadlineTime;
+    toast("דדליין עודכן ✓"); render();
+  },{style:"width:100%;margin-top:12px"}));
+  wrap.appendChild(dlCard);
+
   // Export
   const expCard = div("card",[e("div",{class:"card-title"},"📤 ייצוא סידור")]);
   expCard.appendChild(e("div",{style:"color:#64748B;font-size:13px;margin-bottom:14px"},"ייצא את הסידור השבועי הנוכחי"));
