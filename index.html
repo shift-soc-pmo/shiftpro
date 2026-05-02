@@ -1139,6 +1139,7 @@ const tabs = empOnly ? [
           class:"nav-btn"+(S.view===t.id?" active":""),
           onclick:()=>{
           if(t.id==="swaps_nav"){S.view="empview";S.empViewTab="swaps_emp";S.selectedCell=null;render();}
+          else if(t.id==="empview"){S.view="empview";S.empViewTab="shifts";S.selectedCell=null;render();}
           else{S.view=t.id;S.selectedCell=null;render();}
         }
         },[
@@ -1253,7 +1254,7 @@ function viewSchedule() {
     e("div",{style:"display:flex;gap:8px;flex-wrap:wrap"},[
       btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset--;S.selectedCell=null;loadSchedule().then(()=>render());}),
       btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;S.selectedCell=null;loadSchedule().then(()=>render());}),
-      btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
+      !isManager() && S.weekOffset >= 0 ? null : btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
       isManager() ? btn("btn-green","⚡ שיבוץ אוטומטי",runSmartSchedule) : null,
       isManager() && !isPublished ? btn("btn-purple","📢 פרסם",()=>{S.showPublishModal=true;render();}) : null
     ])
@@ -3561,6 +3562,7 @@ function render() {
         style:`flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px 8px;border:none;border-top:2px solid ${isActive?"#3B82F6":"transparent"};background:transparent;color:${isActive?"#3B82F6":"#64748B"};font-family:inherit;cursor:pointer;position:relative;min-height:56px;transition:color 0.15s`,
         onclick:()=>{
           if(t.id==="swaps_nav"){S.view="empview";S.empViewTab="swaps_emp";S.selectedCell=null;render();}
+          else if(t.id==="empview"){S.view="empview";S.empViewTab="shifts";S.selectedCell=null;render();}
           else{S.view=t.id;S.selectedCell=null;render();}
         }
       },[
