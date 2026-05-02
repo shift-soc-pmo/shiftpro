@@ -332,7 +332,14 @@ function getWeekDates(offset=0) {
   const d=new Date();
   const dow=d.getDay(); // 0=Sun
   d.setDate(d.getDate()-dow+offset*7);
-  return Array.from({length:7},(_,i)=>{const x=new Date(d);x.setDate(d.getDate()+i);return x.toISOString().split("T")[0];});
+  return Array.from({length:7},(_,i)=>{
+    const x=new Date(d);
+    x.setDate(d.getDate()+i);
+    const y=x.getFullYear();
+    const m=String(x.getMonth()+1).padStart(2,"0");
+    const dd=String(x.getDate()).padStart(2,"0");
+    return y+"-"+m+"-"+dd;
+  });
 }
 function fmtDate(d) { return new Date(d+"T00:00:00").toLocaleDateString("he-IL"); }
 function getEmp(id) { return S.employees.find(e=>e.id===id); }
