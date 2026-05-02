@@ -3334,9 +3334,33 @@ function viewManagerBlocks() {
   const wrap = e("div");
   wrap.appendChild(div("page-title", ["🚫 ניהול חסימות עובדים"], {style:"margin-bottom:16px"}));
 
-  const allBlocks = S.availSubmissions || [];
+  const allSubs = S.availSubmissions || [];
   const todayStr = today();
-  
+
+  if (allSubs.length === 0) {
+    wrap.appendChild(div("card", [
+      e("div",{style:"text-align:center;padding:30px;color:#64748B"},"אין חסימות עובדים במערכת")
+    ]));
+    return wrap;
+  }
+
+  // Flatten: each submission has slots array, expand to individual blocks
+  const allBlocks = [];
+  allSubs.forEach(sub => {
+    const emp = getEmp(sub.employee_id);
+    (sub.slots || []).forEach(sl => {
+      allBlocks.push({
+        empName: emp?.name || "עובד לא ידוע",
+        empId: sub.employee_id,
+        weekStart: sub.week_start,
+        date: sl.date || null,
+        day: sl.day,
+        shift: sl.shift,
+        reason: sl.reason || sub.note || ""
+      });
+    });
+  });
+
   if (allBlocks.length === 0) {
     wrap.appendChild(div("card", [
       e("div",{style:"text-align:center;padding:30px;color:#64748B"},"אין חסימות עובדים במערכת")
@@ -3344,40 +3368,40 @@ function viewManagerBlocks() {
     return wrap;
   }
 
-  // קיבוץ כל החסימות לפי שבוע, כדי שהמנהל יראה את זה מסודר
+  // Group by week
   const byWeek = {};
   allBlocks.forEach(b => {
-     const wk = b.week_start || "אחר";
-     if(!byWeek[wk]) byWeek[wk] = [];
-     byWeek[wk].push(b);
+    const wk = b.weekStart || "אחר";
+    if (!byWeek[wk]) byWeek[wk] = [];
+    byWeek[wk].push(b);
   });
 
-  // הצגת השבועות (מהחדש לישן)
   Object.keys(byWeek).sort().reverse().forEach(wk => {
-     const card = div("card");
-     card.appendChild(e("div",{style:"font-weight:800;font-size:15px;color:#3B82F6;margin-bottom:12px"}, `שבוע: ${fmtDate(wk)}`));
-     
-     // מיון החסימות בתוך אותו שבוע לפי תאריך
-     byWeek[wk].sort((a,b)=>a.date.localeCompare(b.date)).forEach(b => {
-         const emp = getEmp(b.employee_id);
-         const sh = SHIFT_BY_ID[b.shift];
-         const dt = new Date(b.date+"T00:00:00");
-         const isPast = b.date < todayStr;
-         
-         card.appendChild(e("div",{style:`display:flex;flex-direction:column;padding:12px;border:1px solid #334155;background:#0F172A;border-radius:10px;margin-bottom:10px;opacity:${isPast?0.5:1}`},[
-            e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"},[
-               e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0"}, [
-                 e("span",{style:"margin-left:6px"},"🚫"),
-                 emp?.name || "עובד לא ידוע"
-               ]),
-               e("div",{style:"font-size:12px;font-weight:700;color:"+ (sh?.color||"#94A3B8")}, `${DAYS[dt.getDay()]} ${dt.getDate()}/${dt.getMonth()+1} · ${sh?.label||b.shift}`)
-            ]),
-            b.reason 
-              ? e("div",{style:"font-size:12px;color:#FCA5A5;font-style:italic;background:#EF444418;padding:8px;border-radius:6px;border:1px solid #EF444433;margin-top:6px"}, `💬 "${b.reason}"`) 
-              : e("div",{style:"font-size:11px;color:#475569;margin-top:4px"},"ללא סיבה")
-         ]));
-     });
-     wrap.appendChild(card);
+    const card = div("card");
+    card.appendChild(e("div",{style:"font-weight:800;font-size:15px;color:#3B82F6;margin-bottom:12px"}, "שבוע: " + fmtDate(wk)));
+
+    // Sort by date then shift
+    byWeek[wk].sort((a,b) => (a.date||"").localeCompare(b.date||"")).forEach(b => {
+      const sh = SHIFT_BY_ID[b.shift];
+      const dateStr = b.date;
+      const dt = dateStr ? new Date(dateStr+"T00:00:00") : null;
+      const isPast = dateStr && dateStr < todayStr;
+      const dayLabel = dt ? (DAYS[dt.getDay()] + " " + dt.getDate() + "/" + (dt.getMonth()+1)) : ("יום " + (DAYS[b.day] || b.day));
+
+      card.appendChild(e("div",{style:"display:flex;flex-direction:column;padding:12px;border:1px solid #334155;background:#0F172A;border-radius:10px;margin-bottom:10px;opacity:"+(isPast?"0.5":"1")},[
+        e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"},[
+          e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0"}, [
+            e("span",{style:"margin-left:6px"},"🚫"),
+            b.empName
+          ]),
+          e("div",{style:"font-size:12px;font-weight:700;color:"+(sh?.color||"#94A3B8")}, dayLabel + " · " + (sh?.label||b.shift))
+        ]),
+        b.reason
+          ? e("div",{style:"font-size:12px;color:#FCA5A5;font-style:italic;background:#EF444418;padding:8px;border-radius:6px;border:1px solid #EF444433;margin-top:6px"}, "💬 \"" + b.reason + "\"")
+          : e("div",{style:"font-size:11px;color:#475569;margin-top:4px"},"ללא סיבה")
+      ]));
+    });
+    wrap.appendChild(card);
   });
 
   return wrap;
