@@ -391,12 +391,12 @@ function runSmartSchedule() {
           if (preferred.includes(shiftId)) score += 30;
           if (dayConstraints[dayName]?.[shiftId] === 1) score += 20;
 
-          // Availability submissions
-          const sub = S.availSubmissions.find(s =>
+          // Block submissions — if employee blocked this shift, skip them
+          const isBlocked = S.availSubmissions.some(s =>
             s.employee_id === emp.id &&
             (s.slots||[]).some(sl => sl.shift === shiftId && sl.day === dateObj.getDay())
           );
-          if (sub) score += 50;
+          if (isBlocked) return null; // don't assign blocked shifts
 
           // Avoid back-to-back: night → morning
           if (dayIdx > 0 && shIdx === 0) {
@@ -495,7 +495,7 @@ async function loadAll(user) {
   S.inviteCode = profile.business_id ? generateInviteCode(profile.business_id) : null;
 
   await loadEmployees();
-  await Promise.all([loadVacations(), loadSwapRequests(), loadSchedule()]);
+  await Promise.all([loadVacations(), loadSwapRequests(), loadAvailSubmissions(), loadSchedule()]);
   
   // Role-based default view
   if (S.profile.role === "employee") {
@@ -524,6 +524,13 @@ async function loadVacations() {
   if (!S.profile?.business_id) return;
   const { data } = await sb.from("vacations").select("*").eq("business_id", S.profile.business_id);
   S.vacations = data || [];
+}
+
+async function loadAvailSubmissions() {
+  if (!S.profile?.business_id) return;
+  const { data } = await sb.from("availability_submissions").select("*")
+    .eq("business_id", S.profile.business_id).order("created_at", {ascending:false});
+  S.availSubmissions = data || [];
 }
 
 async function loadSwapRequests() {
@@ -1114,7 +1121,10 @@ const tabs = empOnly ? [
       div("nav", tabs.map(t =>
         e("button",{
           class:"nav-btn"+(S.view===t.id?" active":""),
-          onclick:()=>{S.view=t.id;S.selectedCell=null;render();}
+          onclick:()=>{
+          if(t.id==="swaps_nav"){S.view="empview";S.empViewTab="swaps_emp";S.selectedCell=null;render();}
+          else{S.view=t.id;S.selectedCell=null;render();}
+        }
         },[
           t.badge>0 ? e("span",{class:"badge "+(t.badgeClass||"")},String(t.badge)) : null,
           e("span",{style:"font-size:15px;line-height:1"},t.icon),
@@ -3410,20 +3420,26 @@ function render() {
     const bottomTabs = isEmpOnly ? [
       {id:"empview",icon:"📋",label:"שלי"},
       {id:"schedule",icon:"📅",label:"סידור"},
+      {id:"blocks",icon:"🚫",label:"חסימות"},
       {id:"vacations",icon:"🌴",label:"העדרויות"},
       {id:"swaps_nav",icon:"🔄",label:"חילופים"},
+      {id:"emp_settings",icon:"⚙️",label:"הגדרות"},
     ] : [
       {id:"home",icon:"🏠",label:"בית"},
       {id:"schedule",icon:"📅",label:"סידור"},
-      {id:"calendar",icon:"🗓️",label:"חודש"},
       {id:"employees",icon:"👥",label:"עובדים"},
-      {id:"vacations",icon:"🌴",label:"חופשות",badge:pendingVacs2},
+      {id:"vacations",icon:"🌴",label:"העדרויות",badge:pendingVacs2},
+      {id:"swaps",icon:"🔄",label:"חילופים"},
+      {id:"settings",icon:"⚙️",label:"הגדרות"},
     ];
     bottomTabs.forEach(t => {
       const isActive = S.view===t.id;
       const btn2 = e("button",{
         style:`flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px 8px;border:none;border-top:2px solid ${isActive?"#3B82F6":"transparent"};background:transparent;color:${isActive?"#3B82F6":"#64748B"};font-family:inherit;cursor:pointer;position:relative;min-height:56px;transition:color 0.15s`,
-        onclick:()=>{S.view=t.id;S.selectedCell=null;render();}
+        onclick:()=>{
+          if(t.id==="swaps_nav"){S.view="empview";S.empViewTab="swaps_emp";S.selectedCell=null;render();}
+          else{S.view=t.id;S.selectedCell=null;render();}
+        }
       },[
         t.badge>0?e("span",{style:"position:absolute;top:6px;right:calc(50% - 16px);background:#EF4444;color:white;border-radius:50%;width:14px;height:14px;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center"},String(t.badge)):null,
         e("span",{style:"font-size:22px;line-height:1"},t.icon),
