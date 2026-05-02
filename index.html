@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shift SOC PMO</title>
+<title>ניהול משמרות</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="manifest" href="manifest.json">
@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Shift SOC PMO">
+<meta name="apple-mobile-web-app-title" content="ניהול משמרות">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:Heebo,sans-serif}
 html,body{height:100%;overflow-x:hidden}
@@ -1016,7 +1016,7 @@ async function submitAvailability(empId, weekStart, slots, note) {
 function viewLoading() {
   return div("loading-screen",[
     e("div",{style:"font-size:48px;margin-bottom:12px"},"📅"),
-    e("div",{style:"font-weight:800;font-size:20px"},"Shift SOC PMO"),
+    e("div",{style:"font-weight:800;font-size:20px"},"ניהול משמרות"),
     e("div",{style:"color:#64748B;font-size:14px;margin-top:8px"},"טוען...")
   ]);
 }
@@ -1031,7 +1031,7 @@ function viewLogin() {
   card.appendChild(div("logo-box",[
     div("logo-icon",["📅"]),
     e("div",{},[
-      e("div",{class:"logo-name"},"Shift SOC PMO"),
+      e("div",{class:"logo-name"},"ניהול משמרות"),
       e("div",{class:"logo-sub"},"מערכת ניהול משמרות")
     ])
   ]));
@@ -1136,7 +1136,7 @@ const tabs = empOnly ? [
       div("",[
         div("logo-icon",["📅"]),
         e("div",{style:"margin-right:10px"},[
-          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"Shift SOC PMO"),
+          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"ניהול משמרות"),
           e("div",{style:"font-size:11px;color:#64748B"},S.business?.name||"")
         ])
       ].map((x,i)=>i===0?x:x), {style:"display:flex;align-items:center;gap:10px"}),
@@ -2931,7 +2931,7 @@ function exportSchedulePDF() {
   .empty{color:#ccc;font-size:11px}
   @media print{body{padding:0}}
 </style></head><body>
-<h1>סידור עבודה — ${S.business?.name||"Shift SOC PMO"}</h1>
+<h1>סידור עבודה — ${S.business?.name||"ניהול משמרות"}</h1>
 <div class="sub">${weekLabel}</div>
 <table>
 <tr><th>משמרת</th>`;
@@ -2999,29 +2999,13 @@ function viewSettings() {
   const wrap = e("div");
   wrap.appendChild(div("page-title",["⚙️ הגדרות"],{style:"margin-bottom:16px"}));
 
-  // Business settings
-  const bizCard = div("card",[e("div",{class:"card-title"},"🏢 פרטי עסק")]);
   if (!S.settingsData) S.settingsData = {
-    bizName: S.business?.name||"",
     morningStart: SHIFTS[0].start, morningEnd: SHIFTS[0].end,
     afternoonStart: SHIFTS[1].start, afternoonEnd: SHIFTS[1].end,
     nightStart: SHIFTS[2].start, nightEnd: SHIFTS[2].end,
     emailNotify: true,
   };
   const sd = S.settingsData;
-
-  bizCard.appendChild(div("form-col",[
-    e("label",{class:"form-label"},"שם העסק"),
-    e("input",{class:"fi",value:sd.bizName,oninput:ev=>{sd.bizName=ev.target.value},style:"margin-bottom:12px"})
-  ],{style:"margin-bottom:12px"}));
-
-  bizCard.appendChild(btn("btn-add","שמור שם עסק",async()=>{
-    if(!sd.bizName.trim()){toast("נא להזין שם","err");return;}
-    await sb.from("businesses").update({name:sd.bizName}).eq("id",S.profile.business_id);
-    S.business.name=sd.bizName;
-    toast("שם עסק עודכן ✓");render();
-  }));
-  wrap.appendChild(bizCard);
 
   // Shift hours settings
   const shiftCard = div("card",[e("div",{class:"card-title"},"🕐 שעות משמרות")]);
