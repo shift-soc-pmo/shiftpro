@@ -3159,6 +3159,48 @@ function viewSettings() {
   },{style:"width:100%"}));
   wrap.appendChild(passCard);
 
+  // Transfer ownership
+  if (S.profile?.role === "admin") {
+    const transCard = div("card",[e("div",{class:"card-title"},"👑 העברת בעלות")]);
+    transCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},"העבר את תפקיד המנהל הראשי לעובד אחר. לאחר ההעברה תהפוך לעובד רגיל."));
+
+    const empSelect = e("select",{class:"fi",style:"margin-bottom:12px",id:"transfer-select"});
+    empSelect.appendChild(e("option",{value:""},"בחר עובד..."));
+    S.employees.filter(emp => emp.id !== S.user.id).forEach(emp => {
+      empSelect.appendChild(e("option",{value:emp.id},emp.name + " (" + (emp.email||"ללא מייל") + ")"));
+    });
+    transCard.appendChild(empSelect);
+
+    transCard.appendChild(btn("btn-sm btn-sm-red","👑 העבר בעלות",async()=>{
+      const targetId = document.getElementById("transfer-select")?.value;
+      if (!targetId) { toast("בחר עובד","err"); return; }
+      const targetEmp = getEmp(targetId);
+      if (!confirm("האם אתה בטוח שברצונך להעביר את הבעלות ל-" + targetEmp?.name + "?\n\nלאחר ההעברה:\n• " + targetEmp?.name + " יהפוך למנהל ראשי\n• אתה תהפוך לעובד רגיל\n• הפעולה לא ניתנת לביטול")) return;
+      if (!confirm("אישור סופי — להעביר את כל ההרשאות ל-" + targetEmp?.name + "?")) return;
+
+      // Update owner in businesses table
+      await sb.from("businesses").update({owner_id: targetId}).eq("id", S.profile.business_id);
+      // Make target admin
+      await sb.from("profiles").update({role: "admin"}).eq("id", targetId);
+      // Demote self to employee
+      await sb.from("profiles").update({role: "employee"}).eq("id", S.user.id);
+
+      // Send email to new owner
+      if (targetEmp?.email) {
+        sendEmail("swap_request", targetEmp.email, {
+          requesterName: "מערכת Shift SOC PMO",
+          targetDate: new Date().toLocaleDateString("he-IL"),
+          shiftLabel: "👑 הועברה אליך בעלות על המערכת",
+          note: S.profile.name + " העביר אליך את ניהול המערכת. כעת יש לך גישת מנהל מלאה."
+        });
+      }
+
+      toast("הבעלות הועברה ל-" + targetEmp?.name + " ✓");
+      await loadAll(S.user);
+    },{style:"width:100%"}));
+    wrap.appendChild(transCard);
+  }
+
   // Danger zone
   const dangerCard = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#EF4444;margin-bottom:12px"},"⚠️ אזור מסוכן")]);
   dangerCard.appendChild(btn("btn-sm btn-sm-red","יציאה מהמערכת",handleLogout,{style:"margin-bottom:8px;width:100%"}));
