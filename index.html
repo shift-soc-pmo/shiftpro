@@ -514,17 +514,18 @@ function isAdmin() {
 }
 
 function generateInviteCode(businessId) {
-  // Deterministic code from business ID (8 chars for more security)
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   let code = "";
-  let hash = 0;
+  let h1 = 0, h2 = 5381;
   for (let i = 0; i < businessId.length; i++) {
-    hash = ((hash << 5) - hash) + businessId.charCodeAt(i);
-    hash = hash & hash;
+    h1 = ((h1 << 5) - h1) + businessId.charCodeAt(i);
+    h1 = h1 & h1;
+    h2 = ((h2 << 5) + h2) + businessId.charCodeAt(i);
+    h2 = h2 & h2;
   }
-  for (let i = 0; i < 8; i++) {
-    const idx = Math.abs((hash * (i+1) * 31 + i * 17) % chars.length);
-    code += chars[idx];
+  for (let i = 0; i < 12; i++) {
+    const seed = Math.abs((h1 * (i+1) * 31 + h2 * (i+3) * 17 + i * 53) % chars.length);
+    code += chars[seed];
   }
   return code;
 }
