@@ -1650,7 +1650,7 @@ function viewEmployees() {
         e("td",{},emp.role==="admin"||emp.role==="manager"?"מנהל":"עובד"),
         e("td",{},[
           btn("btn-sm btn-sm-blue","✏️ הגבלות",()=>{S.constraintsEmp=emp;render();},{style:"margin-left:4px"}),
-          emp.role!=="admin" ? e("select",{
+          emp.id !== S.user.id ? e("select",{
             style:"background:#0F172A;border:1px solid #334155;border-radius:6px;color:#94A3B8;font-size:11px;padding:3px 6px;font-family:inherit;margin-left:4px",
             onchange: async (ev) => {
               const newRole = ev.target.value;
@@ -1662,7 +1662,7 @@ function viewEmployees() {
           },[
             e("option",{value:"employee",selected:emp.role==="employee"?"selected":null},"עובד"),
             e("option",{value:"admin",selected:emp.role==="admin"||emp.role==="manager"?"selected":null},"מנהל")
-          ]) : e("span",{style:"font-size:11px;color:#64748B;margin-left:4px"},""),
+          ]) : e("span",{style:"font-size:11px;color:#F59E0B;margin-left:4px"},""),
           emp.id !== S.user.id ? btn("btn-sm btn-sm-red","🗑️",()=>deleteEmployee(emp.id)) : null
         ])
       ]);
