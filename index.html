@@ -397,6 +397,17 @@ function runSmartSchedule() {
           const maxShifts = emp.max_shifts_per_week || 5;
           const dayConstraints = emp.day_constraints || {};
 
+          // Active days check (0=Sun..6=Sat)
+          const activeDays = emp.active_days || [0,1,2,3,4,5,6];
+          if (!activeDays.includes(dateObj.getDay())) return null;
+
+          // Allowed shifts check
+          const empAllowedShifts = emp.allowed_shifts || SHIFTS.map(s=>s.id);
+          if (!empAllowedShifts.includes(shiftId)) return null;
+
+          // Temporary exclusion check
+          if (emp.exclude_from && emp.exclude_to && dateStr >= emp.exclude_from && dateStr <= emp.exclude_to) return null;
+
           // Hard blocks
           const onVac = S.vacations.some(v =>
             v.employee_id === emp.id && v.status === "approved" &&
@@ -404,10 +415,18 @@ function runSmartSchedule() {
           );
           if (onVac) return null;
           if (!avail.includes(dayName)) return null;
+          // Excluded days (permanent)
+          if ((emp.excluded_days||[]).includes(dateObj.getDay())) return null;
+          // Allowed shifts
+          if (emp.allowed_shifts && !emp.allowed_shifts.includes(shiftId)) return null;
           if (dayConstraints[dayName]?.[shiftId] === 0) return null;
           if (totalCount[emp.id] >= maxShifts) return null;
           const perLimit = emp.max_per_shift?.[shiftId];
           if (perLimit != null && (shiftTypeCount[emp.id][shiftId]||0) >= perLimit) return null;
+
+          // Check if employee is allowed on this shift type
+          const allowedShifts = emp.preferred_shifts;
+          if (allowedShifts && allowedShifts.length > 0 && !allowedShifts.includes(shiftId)) return null;
 
           // Scoring
           score -= totalCount[emp.id] * 12;
@@ -895,6 +914,9 @@ async function saveConstraints(empId, data) {
     availability: data.availability,
     preferred_shifts: data.preferredShifts,
     block_limits: data.blockLimits || null,
+    allowed_shifts: data.allowedShifts || null,
+    excluded_days: data.excludedDays || [],
+    excluded_days_reason: data.excludedDaysReason || null,
   }).eq("id", empId);
   await loadEmployees();
   S.constraintsEmp = null;
@@ -2840,6 +2862,11 @@ function viewConstraintsModal() {
   let localPerShift = JSON.parse(JSON.stringify(emp.max_per_shift||{}));
   let localAvail = [...(emp.availability||DAYS)];
   let localPref = [...(emp.preferred_shifts||[])];
+  let localActiveDays = [...(emp.active_days || [0,1,2,3,4,5,6])]; // 0=Sun..6=Sat
+  let localWorkShifts = [...(emp.allowed_shifts || SHIFTS.map(s=>s.id))];
+  let localExcludeFrom = emp.exclude_from || null;
+  let localExcludeTo = emp.exclude_to || null;
+  let localExcludeReason = emp.exclude_reason || "";
   let localMaxBlocks = emp.max_blocks_per_week ?? 99;
   let localBlockLimits = JSON.parse(JSON.stringify(emp.block_limits || {
     weekday: { morning: 3, afternoon: 3, night: 1 },
@@ -2869,9 +2896,75 @@ function viewConstraintsModal() {
     ],{style:"margin-bottom:12px"});
     modal.appendChild(r1);
 
+    // ── Active days ──
+    const daysCard = div("card",[
+      e("div",{class:"form-label",style:"margin-bottom:10px"},"📅 ימים פעילים"),
+      e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"בחר באילו ימים העובד עובד — ימים לא פעילים לא יישובצו אוטומטית")
+    ],{style:"margin-bottom:12px"});
+    const daysGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px"});
+    DAYS.forEach((dayName, dayIdx) => {
+      const isActive = localActiveDays.includes(dayIdx);
+      daysGrid.appendChild(e("button",{
+        style:`padding:10px 14px;border-radius:10px;border:1px solid ${isActive?"#10B981":"#334155"};background:${isActive?"#10B98122":"#0F172A"};color:${isActive?"#10B981":"#475569"};font-family:inherit;font-weight:700;font-size:13px;cursor:pointer`,
+        onclick:()=>{
+          if(isActive) localActiveDays = localActiveDays.filter(d=>d!==dayIdx);
+          else localActiveDays.push(dayIdx);
+          rebuildModal();
+        }
+      },isActive ? "✓ "+dayName : dayName));
+    });
+    daysCard.appendChild(daysGrid);
+    modal.appendChild(daysCard);
+
+    // ── Allowed shifts ──
+    const shiftsCard = div("card",[
+      e("div",{class:"form-label",style:"margin-bottom:10px"},"🕐 משמרות מותרות"),
+      e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"למשל: עובד שעובד רק בוקר — בטל את הסימון מצהריים ולילה")
+    ],{style:"margin-bottom:12px"});
+    const shiftsGrid = e("div",{style:"display:flex;gap:8px"});
+    SHIFTS.forEach(sh => {
+      const isAllowed = localWorkShifts.includes(sh.id);
+      shiftsGrid.appendChild(e("button",{
+        style:`flex:1;padding:14px 10px;border-radius:12px;border:2px solid ${isAllowed?sh.color:sh.color+"33"};background:${isAllowed?sh.color+"22":"#0F172A"};color:${isAllowed?sh.color:"#475569"};font-family:inherit;font-weight:800;font-size:14px;cursor:pointer;text-align:center`,
+        onclick:()=>{
+          if(isAllowed) localWorkShifts = localWorkShifts.filter(s=>s!==sh.id);
+          else localWorkShifts.push(sh.id);
+          rebuildModal();
+        }
+      },[
+        e("div",{style:"font-size:20px;margin-bottom:4px"},isAllowed?"✓":"✗"),
+        e("div",{},sh.label)
+      ]));
+    });
+    shiftsCard.appendChild(shiftsGrid);
+    modal.appendChild(shiftsCard);
+
+    // ── Temporary exclusion ──
+    const exCard = div("card",[
+      e("div",{class:"form-label",style:"margin-bottom:10px"},"🚑 השעיה זמנית מהסידור"),
+      e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"העובד לא יישובץ בתאריכים אלו (מחלה, חל״ת, וכו׳)")
+    ],{style:"margin-bottom:12px"});
+    exCard.appendChild(div("form-row",[
+      div("form-col",[
+        e("label",{class:"form-label"},"מתאריך"),
+        e("input",{class:"fi",type:"date",value:localExcludeFrom||"",oninput:ev=>{localExcludeFrom=ev.target.value||null;}})
+      ]),
+      div("form-col",[
+        e("label",{class:"form-label"},"עד תאריך"),
+        e("input",{class:"fi",type:"date",value:localExcludeTo||"",oninput:ev=>{localExcludeTo=ev.target.value||null;}})
+      ])
+    ]));
+    exCard.appendChild(e("input",{class:"fi",placeholder:"סיבה (מחלה, חל״ת...)",value:localExcludeReason,style:"margin-top:8px",
+      oninput:ev=>{localExcludeReason=ev.target.value;}}));
+    if (localExcludeFrom && localExcludeTo) {
+      exCard.appendChild(e("div",{style:"margin-top:10px;background:#EF444418;border:1px solid #EF444433;border-radius:8px;padding:8px 12px;font-size:12px;color:#FCA5A5"},
+        "🚑 מושעה: " + fmtDate(localExcludeFrom) + " — " + fmtDate(localExcludeTo) + (localExcludeReason ? " (" + localExcludeReason + ")" : "")));
+    }
+    exCard.appendChild(btn("btn-sm btn-sm-gray","נקה השעיה",()=>{localExcludeFrom=null;localExcludeTo=null;localExcludeReason="";rebuildModal();},{style:"margin-top:8px"}));
+    modal.appendChild(exCard);
+
     // Per shift limits removed - handled by block_limits
 
-    // Day constraints removed - handled by block_limits
 
     // ── Block limits per day group ──
     const limCard = div("card",[
@@ -2905,7 +2998,7 @@ function viewConstraintsModal() {
     // Actions
     modal.appendChild(div("form-actions",[
       btn("btn-add","שמור הגבלות",async()=>{
-        await saveConstraints(emp.id,{maxShifts:localMax,maxPerShift:localPerShift,dayConstraints:localDC,availability:localAvail,preferredShifts:localPref,maxBlocks:localMaxBlocks,allowedBlockSlots:localAllowedBlocks,blockLimits:localBlockLimits});
+        await saveConstraints(emp.id,{maxShifts:localMax,maxPerShift:localPerShift,dayConstraints:localDC,availability:localAvail,preferredShifts:localPref,maxBlocks:localMaxBlocks,allowedBlockSlots:localAllowedBlocks,blockLimits:localBlockLimits,allowedShifts:localWorkShifts,excludedDays:localExcludedDays,excludedDaysReason:localExclReason});
       },{style:"flex:1"}),
       btn("btn-sm btn-sm-gray","ביטול",()=>{S.constraintsEmp=null;render();})
     ]));
