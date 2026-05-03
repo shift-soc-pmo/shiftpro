@@ -581,7 +581,9 @@ async function loadSchedule() {
     .select("*").eq("business_id", S.profile.business_id)
     .eq("week_start", weekStart).single();
 
-  if (!sched) { S.schedule={}; return; }
+  if (!sched) { S.schedule={}; S.currentPublishType=null; return; }
+  // Employee can only see published schedules
+  if (!isManager() && !sched.published) { S.schedule={}; S.currentPublishType=null; return; }
   if (sched.published) {
     if (sched.publish_type === "final") {
       S.publishedWeeks.add(weekStart);
@@ -1272,7 +1274,7 @@ function viewSchedule() {
     e("div",{style:"display:flex;gap:8px;flex-wrap:wrap"},[
       btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset--;S.selectedCell=null;loadSchedule().then(()=>render());}),
       btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;S.selectedCell=null;loadSchedule().then(()=>render());}),
-      !isManager() && S.weekOffset >= 0 ? null : btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
+      !isManager() && S.weekOffset >= 0 && !S.publishedInitial?.has(getWeekDates(S.weekOffset+1)[0]) && !S.publishedWeeks.has(getWeekDates(S.weekOffset+1)[0]) ? null : btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
       isManager() ? btn("btn-green","⚡ שיבוץ אוטומטי",runSmartSchedule) : null,
       isManager() && !isPublished ? btn("btn-purple","📢 פרסם",()=>{S.showPublishModal=true;render();}) : null
     ])
@@ -3642,6 +3644,7 @@ function render() {
       {id:"home",icon:"🏠",label:"בית"},
       {id:"schedule",icon:"📅",label:"סידור"},
       {id:"employees",icon:"👥",label:"עובדים"},
+      {id:"manager_blocks",icon:"🚫",label:"חסימות"},
       {id:"vacations",icon:"🌴",label:"העדרויות",badge:pendingVacs2},
       {id:"swaps",icon:"🔄",label:"חילופים"},
       {id:"settings",icon:"⚙️",label:"הגדרות"},
