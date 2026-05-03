@@ -634,7 +634,8 @@ async function sendEmail(type, toEmail, data) {
     "swap_decision": "notif_swap"
   };
   const settingKey = settingMap[type];
-  if (settingKey && localStorage.getItem(settingKey) === "0") return;
+  const notifSettings = S.business?.notification_settings || {};
+  if (settingKey && notifSettings[settingKey] === false) return;
 
   try {
     console.log("📧 Sending email:", type, "to:", toEmail);
@@ -3142,14 +3143,14 @@ function viewSettings() {
     e("div",{style:"font-size:12px;color:#94A3B8"},"התראות אימייל דורשות שרת SMTP. ניתן לשלב עם Supabase Edge Functions.")
   ]));
 
+  const notifSettings = S.business?.notification_settings || {};
   const notifItems = [
     {id:"notif_publish",label:"פרסום סידור לעובדים",sub:"עובדים מקבלים מייל כשסידור פורסם"},
-    {id:"notif_vac_approved",label:"אישור / דחיית חופשה",sub:"עובד מקבל מייל על תשובת הבקשה"},
-    {id:"notif_swap",label:"בקשת חילוף חדשה",sub:"מנהל מקבל מייל על בקשת חילוף"},
+    {id:"notif_vac_approved",label:"אישור / דחיית היעדרות",sub:"עובד מקבל מייל על תשובת הבקשה"},
+    {id:"notif_swap",label:"בקשות חילוף והצטרפות",sub:"מנהל/עובד מקבל מייל על בקשות"},
   ];
   notifItems.forEach(item=>{
-    const stored = localStorage.getItem(item.id);
-    const isOn = stored === null ? true : stored === "1";
+    const isOn = notifSettings[item.id] !== false;
     emailCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #0F172A"},[
       e("div",{},[
         e("div",{style:"font-weight:600;font-size:13px;color:#E2E8F0"},item.label),
@@ -3157,11 +3158,13 @@ function viewSettings() {
       ]),
       e("button",{
         style:`width:44px;height:24px;border-radius:12px;border:none;background:${isOn?"#10B981":"#334155"};position:relative;cursor:pointer;transition:background 0.2s`,
-        onclick:(ev)=>{
+        onclick:async(ev)=>{
           const newVal = !isOn;
-          localStorage.setItem(item.id, newVal?"1":"0");
-          ev.currentTarget.style.background = newVal?"#10B981":"#334155";
-          ev.currentTarget.querySelector("span").style.right = newVal?"2px":"20px";
+          const updated = {...(S.business?.notification_settings||{}), [item.id]: newVal};
+          await sb.from("businesses").update({notification_settings: updated}).eq("id", S.profile.business_id);
+          S.business.notification_settings = updated;
+          toast(newVal ? "התראה הופעלה ✓" : "התראה כובתה");
+          render();
         }
       },[e("span",{style:`position:absolute;top:2px;right:${isOn?"2px":"20px"};width:20px;height:20px;border-radius:50%;background:white;transition:right 0.2s`})])
     ]));
