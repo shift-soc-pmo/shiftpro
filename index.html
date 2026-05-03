@@ -287,6 +287,7 @@ let S = {
   publishedWeeks: new Set(),
   lockedSlots: {},      // { "date|shift": Set<empId> }
   customHours: {},      // { "date|shift|empId": {start,end} }
+  assignmentNotes: {},  // { "date|shift|empId": "note text" }
   weekOffset: 0,
   selectedCell: null,   // { date, shift }
   constraintsEmp: null,
@@ -494,11 +495,17 @@ function isAdmin() {
 }
 
 function generateInviteCode(businessId) {
-  // Simple deterministic code from business ID
+  // Deterministic code from business ID (8 chars for more security)
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars[(businessId.charCodeAt(i % businessId.length) + i * 7) % chars.length];
+  let hash = 0;
+  for (let i = 0; i < businessId.length; i++) {
+    hash = ((hash << 5) - hash) + businessId.charCodeAt(i);
+    hash = hash & hash;
+  }
+  for (let i = 0; i < 8; i++) {
+    const idx = Math.abs((hash * (i+1) * 31 + i * 17) % chars.length);
+    code += chars[idx];
   }
   return code;
 }
@@ -600,6 +607,9 @@ async function loadSchedule() {
     if (a.custom_start && a.custom_end) {
       S.customHours[a.date+"|"+a.shift+"|"+a.employee_id] = {start:a.custom_start,end:a.custom_end};
     }
+    if (a.note) {
+      S.assignmentNotes[a.date+"|"+a.shift+"|"+a.employee_id] = a.note;
+    }
   });
   S.schedule = sched_obj;
 }
@@ -681,8 +691,10 @@ function saveScheduleToDB() {
           if (!Array.isArray(empIds)) return;
           empIds.forEach(empId => {
             const ch = S.customHours[date+"|"+shift+"|"+empId];
+            const noteVal = S.assignmentNotes[date+"|"+shift+"|"+empId];
             rows.push({ schedule_id: sched.id, employee_id: empId, date, shift,
-              custom_start: ch?.start||null, custom_end: ch?.end||null });
+              custom_start: ch?.start||null, custom_end: ch?.end||null,
+              note: noteVal||null });
           });
         });
       });
@@ -1364,7 +1376,8 @@ function viewSchedule() {
           const chip = e("div",{class:"emp-chip",style:`background:${col}22;border:1px solid ${col}44;color:${col}`},[
             e("span",{style:`width:6px;height:6px;border-radius:50%;background:${col};flex-shrink:0`},""),
             e("span",{},emp.name.split(" ")[0]),
-            ch ? e("span",{style:"font-size:9px;opacity:0.7"},` ${ch.start}-${ch.end}`) : null
+            ch ? e("span",{style:"font-size:9px;opacity:0.7"},` ${ch.start}-${ch.end}`) : null,
+            S.assignmentNotes[date+"|"+shift.id+"|"+empId] ? e("div",{style:"font-size:8px;color:#F59E0B;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px"},"📝 "+S.assignmentNotes[date+"|"+shift.id+"|"+empId]) : null
           ]);
           td.appendChild(chip);
         });
@@ -1427,6 +1440,50 @@ function viewCellEditor(date, shiftId) {
       // Custom hours button
       const chKey = date+"|"+shiftId+"|"+emp.id;
       const existingCh = S.customHours[chKey];
+      // Note button
+      const noteKey = date+"|"+shiftId+"|"+emp.id;
+      const existingNote = S.assignmentNotes[noteKey];
+      const noteBtn = e("button",{
+        class:"btn-icon",
+        title:"הערה",
+        style:"margin-right:-8px;margin-left:4px;font-size:12px;color:"+(existingNote?"#F59E0B":"#475569"),
+        onclick: (ev) => {
+          ev.stopPropagation();
+          const existingEditor = document.getElementById("note-editor-"+noteKey.replace(/[|]/g,"_"));
+          if (existingEditor) { existingEditor.remove(); return; }
+          const editorDiv = e("div",{
+            id:"note-editor-"+noteKey.replace(/[|]/g,"_"),
+            style:"display:flex;align-items:center;gap:6px;background:#0F172A;border:1px solid #334155;border-radius:8px;padding:6px 10px;margin:4px;width:100%"
+          },[
+            e("input",{type:"text",value:existingNote||"",placeholder:"הערה (מהבית, מערכת XY...)",
+              style:"flex:1;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:12px;padding:5px 8px;font-family:inherit",
+              id:"note-inp-"+noteKey.replace(/[|]/g,"_")}),
+            e("button",{
+              style:"background:#10B98122;border:1px solid #10B98144;color:#10B981;border-radius:6px;padding:3px 8px;font-size:11px;font-family:inherit;font-weight:700",
+              onclick:(ev2)=>{
+                ev2.stopPropagation();
+                const val=document.getElementById("note-inp-"+noteKey.replace(/[|]/g,"_")).value;
+                if(val) S.assignmentNotes[noteKey]=val;
+                else delete S.assignmentNotes[noteKey];
+                saveScheduleToDB();
+                toast("הערה נשמרה ✓");render();
+              }
+            },"שמור"),
+            e("button",{
+              style:"background:#EF444422;border:1px solid #EF444444;color:#EF4444;border-radius:6px;padding:3px 8px;font-size:11px;font-family:inherit;font-weight:700",
+              onclick:(ev2)=>{
+                ev2.stopPropagation();
+                delete S.assignmentNotes[noteKey];
+                saveScheduleToDB();
+                toast("הערה הוסרה");render();
+              }
+            },"מחק")
+          ]);
+          btnWrap.appendChild(editorDiv);
+        }
+      }, existingNote?"📝":"💬");
+      btnWrap.appendChild(noteBtn);
+
       const hoursBtn = e("button",{
         class:"btn-icon",
         title:"ערוך שעות",
@@ -2440,7 +2497,8 @@ function viewEmpView() {
               isToday?e("span",{style:"font-size:10px;background:#3B82F622;color:#60A5FA;border-radius:5px;padding:1px 6px"},"היום"):null
             ]),
             e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},(ch?ch.start:shift.start)+" – "+(ch?ch.end:shift.end)),
-            others.length>0?e("div",{style:"font-size:11px;color:#64748B;margin-top:3px"},"יחד עם: "+others.join(", ")):null
+            others.length>0?e("div",{style:"font-size:11px;color:#64748B;margin-top:3px"},"יחד עם: "+others.join(", ")):null,
+            S.assignmentNotes[date+"|"+shift.id+"|"+emp.id]?e("div",{style:"font-size:11px;color:#F59E0B;margin-top:3px;background:#F59E0B11;border-radius:6px;padding:2px 8px"},"📝 "+S.assignmentNotes[date+"|"+shift.id+"|"+emp.id]):null
           ]),
           e("span",{style:"font-size:20px"},isToday?"🔔":date<today()?"✅":"📌")
         ]));
