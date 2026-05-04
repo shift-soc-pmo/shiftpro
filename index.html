@@ -745,23 +745,30 @@ async function handleLogin(email, password) {
 }
 
 async function handleRegister(name, businessName, email, password, inviteCode) {
-  const {data:auth, error:ae} = await sb.auth.signUp({email,password,options:{data:{name}}});
-  if(ae) throw ae;
-
   if (inviteCode) {
-    // Employee joining with invite code — find matching business
+    // Validate invite code BEFORE creating user
+    // Use service role or public access to check businesses
     const {data:businesses} = await sb.from("businesses").select("id,name");
     const matchBiz = (businesses||[]).find(b => generateInviteCode(b.id) === inviteCode.trim());
     if (!matchBiz) throw new Error("קוד הזמנה לא תקין");
+    
+    // Now create user
+    const {data:auth, error:ae} = await sb.auth.signUp({email,password,options:{data:{name}}});
+    if(ae) throw ae;
+    
     await sb.from("profiles").update({business_id:matchBiz.id, role:"employee", name}).eq("id", auth.user.id);
+    await loadAll(auth.user);
   } else {
     // Manager creating new business
+    const {data:auth, error:ae} = await sb.auth.signUp({email,password,options:{data:{name}}});
+    if(ae) throw ae;
+    
     const {data:biz, error:be} = await sb.from("businesses")
       .insert({name:businessName, owner_id:auth.user.id}).select().single();
     if(be) throw be;
     await sb.from("profiles").update({business_id:biz.id, role:"admin", name}).eq("id", auth.user.id);
+    await loadAll(auth.user);
   }
-  await loadAll(auth.user);
 }
 
 async function handleLogout() {
