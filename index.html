@@ -3918,8 +3918,14 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
 
-// INIT
+// וידוא סגירת פונקציות פתוחות (ליתר ביטחון)
+    } 
+    catch (e) { console.error("Error in view:", e); }
+} 
+
+// הרצת האפליקציה
 checkAuth();
+
 </script>
 
 <!-- Mobile Debug Console -->
@@ -3934,42 +3940,23 @@ checkAuth();
 <button id="mob-console-btn" onclick="document.getElementById('mob-console').style.display='block'" style="display:none;position:fixed;bottom:70px;left:10px;background:#000;color:#0f0;border:1px solid #0f0;border-radius:6px;padding:4px 8px;font-size:11px;font-family:monospace;z-index:99998;cursor:pointer">🐛</button>
 
 <script>
-// Show debug button only on mobile
 if (/iPhone|iPad|Android/i.test(navigator.userAgent)) {
   document.getElementById('mob-console-btn').style.display = 'block';
 }
 
-// Override console methods (safe)
 try {
   const logEl = document.getElementById('mob-console-log');
-  if (logEl && console && typeof console.log === 'function' && console.log.bind) {
-    function addLog(type, args) {
-      const colors = { log:'#ccc', warn:'#fa0', error:'#f44', info:'#4af' };
+  if (logEl) {
+    const addLog = (type, args) => {
       const line = document.createElement('div');
-      line.style.color = colors[type] || '#ccc';
       line.style.borderBottom = '1px solid #111';
-      line.style.padding = '2px 0';
-      line.textContent = '[' + type.toUpperCase() + '] ' + Array.from(args).map(a => {
-        try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch(e) { return String(a); }
-      }).join(' ');
+      line.textContent = '[' + type.toUpperCase() + '] ' + Array.from(args).toString();
       logEl.appendChild(line);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-    const _log = console.log.bind(console);
-    const _warn = console.warn.bind(console);
-    const _error = console.error.bind(console);
-    const _info = console.info ? console.info.bind(console) : _log;
-
-    console.log = function() { _log.apply(console, arguments); addLog('log', arguments); };
-    console.warn = function() { _warn.apply(console, arguments); addLog('warn', arguments); };
-    console.error = function() { _error.apply(console, arguments); addLog('error', arguments); };
-    console.info = function() { _info.apply(console, arguments); addLog('info', arguments); };
+    };
+    console.log = function() { addLog('log', arguments); };
+    console.error = function() { addLog('error', arguments); };
   }
 } catch(e) {}
-
-window.onerror = function(msg, src, line) {
-  addLog('error', [msg + ' (line ' + line + ')']);
-};
 </script>
 </body>
 </html>
