@@ -3918,17 +3918,12 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
 
-// וידוא סגירת פונקציות פתוחות (ליתר ביטחון)
-    } 
-    catch (e) { console.error("Error in view:", e); }
-} 
-
-// הרצת האפליקציה
+// 1. קריאה לפונקציית האימות להפעלת האפליקציה
 checkAuth();
 
 </script>
 
-<!-- Mobile Debug Console -->
+<!-- Mobile Debug Console (Optional) -->
 <div id="mob-console" style="display:none;position:fixed;bottom:0;left:0;right:0;height:200px;background:#000;color:#0f0;font-family:monospace;font-size:11px;overflow-y:auto;z-index:99999;border-top:2px solid #0f0;padding:8px">
   <div style="display:flex;justify-content:space-between;margin-bottom:6px">
     <span style="color:#0f0;font-weight:700">🐛 Console</span>
@@ -3940,6 +3935,7 @@ checkAuth();
 <button id="mob-console-btn" onclick="document.getElementById('mob-console').style.display='block'" style="display:none;position:fixed;bottom:70px;left:10px;background:#000;color:#0f0;border:1px solid #0f0;border-radius:6px;padding:4px 8px;font-size:11px;font-family:monospace;z-index:99998;cursor:pointer">🐛</button>
 
 <script>
+// לוגיקה של הקונסול לנייד
 if (/iPhone|iPad|Android/i.test(navigator.userAgent)) {
   document.getElementById('mob-console-btn').style.display = 'block';
 }
@@ -3950,13 +3946,17 @@ try {
     const addLog = (type, args) => {
       const line = document.createElement('div');
       line.style.borderBottom = '1px solid #111';
-      line.textContent = '[' + type.toUpperCase() + '] ' + Array.from(args).toString();
+      line.textContent = '[' + type.toUpperCase() + '] ' + Array.from(args).join(' ');
       logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
     };
-    console.log = function() { addLog('log', arguments); };
-    console.error = function() { addLog('error', arguments); };
+    const _log = console.log.bind(console);
+    console.log = function() { _log.apply(console, arguments); addLog('log', arguments); };
   }
-} catch(e) {}
+} catch (e) {
+  // כאן ה-catch תקין כי ה-try נסגר שורה מעל
+  console.error("Debug console error:", e);
+}
 </script>
 </body>
 </html>
