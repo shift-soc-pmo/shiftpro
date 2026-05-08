@@ -233,6 +233,12 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
   /* Hide internal emp-view tabs on mobile — bottom nav handles it */
   .emp-view-tabs{display:none !important}
 
+  /* Employee table → stack on mobile */
+  .emp-table thead{display:none}
+  .emp-table tbody tr{display:flex;flex-direction:column;background:#0F172A;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:10px}
+  .emp-table tbody td{border:none;padding:4px 0;font-size:13px}
+  .emp-table tbody td:last-child{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #1E293B}
+
   /* Buttons */
   .btn-add,.btn-green,.btn-purple{padding:12px 16px;font-size:14px;border-radius:12px;width:100%}
   .btn-sm{padding:6px 10px;font-size:12px}
@@ -1645,7 +1651,7 @@ function viewEmployees() {
     wrap.appendChild(div("card",[e("div",{style:"text-align:center;padding:40px;color:#64748B"},["אין עובדים עדיין"])]));
   } else {
     const card = div("card");
-    const tbl = e("table",[
+    const tbl = e("table",{class:"emp-table"},[
       e("thead",[e("tr",[e("th",{},"שם"),e("th",{},"אימייל"),e("th",{},"ת.ז."),e("th",{},"תפקיד"),e("th",{},"")])])
     ]);
     const tbody = e("tbody");
