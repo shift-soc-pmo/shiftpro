@@ -2692,245 +2692,206 @@ function viewEmpView() {
     const allowedSlots = noConfig ? Object.fromEntries(DAYS.map(d=>[d, SHIFTS.map(s=>s.id)])) : rawAllowed;
 
     // Count used blocks per shift per day group
-    function getBlockCount(shiftId, isWeekend) {
-      let count = 0;
-      Object.entries(S.availDraft).forEach(([key,val]) => {
-        if (!val) return;
-        const [di, sid] = key.split("|");
-        if (sid !== shiftId) return;
-        const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
-        const isWE = dt.getDay() === 5 || dt.getDay() === 6;
-        if (isWE === isWeekend) count++;
-      });
-      return count;
+  function getBlockCount(shiftId, isWeekend, targetDates) {
+  let count = 0;
+  Object.entries(S.availDraft).forEach(([key, val]) => {
+    if (!val) return;
+    const [di, sid] = key.split("|");
+    const dt = new Date(targetDates[parseInt(di)] + "T00:00:00");
+    const isDayWeekend = dt.getDay() === 5 || dt.getDay() === 6;
+
+    if (isWeekend) {
+      if (isDayWeekend) count++; // סופר את כל החסימות בסופ"ש יחד
+    } else {
+      if (!isDayWeekend && sid === shiftId) count++; // ביום חול סופר לפי סוג משמרת
     }
-    const totalUsed = Object.values(S.availDraft).filter(Boolean).length;
+  });
+  return count;
+}
 
+// --- פונקציית viewEmpView המלאה ---
+function viewEmpView() {
+  const wrap = e("div", { style: "width:100%" });
+  const selfOnly = S.profile?.role === "employee" || S.testAsEmployee;
+
+  if (selfOnly && !S.empViewId) S.empViewId = S.user.id;
+
+  if (selfOnly) {
+    wrap.appendChild(div("page-title", ["📋 המשמרות שלי"], { style: "margin-bottom:14px" }));
+  } else {
+    wrap.appendChild(div("section-header", [
+      div("page-title", ["👤 תצוגת עובד"]),
+      e("div", { style: "display:flex;align-items:center;gap:8px" }, [
+        e("span", { style: "font-size:12px;color:#64748B" }, "מצב בדיקה:"),
+        btn("", S.testAsEmployee ? "✅ פעיל" : "הפעל מצב בדיקה", () => {
+          S.testAsEmployee = !S.testAsEmployee;
+          if (S.testAsEmployee && !S.empViewId) S.empViewId = S.employees[0]?.id;
+          render();
+        }, {
+          style: `padding:6px 14px;border-radius:8px;border:1px solid ${S.testAsEmployee ? "#10B981aa" : "#334155"};background:${S.testAsEmployee ? "#10B98122" : "#1E293B"};color:${S.testAsEmployee ? "#10B981" : "#64748B"};font-family:inherit;font-size:12px;font-weight:700`
+        })
+      ])
+    ], { style: "margin-bottom:14px" }));
+
+    const picker = e("div", { style: "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px" });
+    S.employees.forEach((emp, idx) => {
+      const col = ec(idx);
+      const sel = S.empViewId === emp.id;
+      picker.appendChild(btn("", emp.name.split(" ")[0], () => { S.empViewId = emp.id; S.empViewTab = "shifts"; render(); }, {
+        style: `padding:7px 14px;border-radius:10px;border:1px solid ${sel ? col + "cc" : col + "44"};background:${sel ? col + "33" : "#1E293B"};color:${sel ? col : "#94A3B8"};font-family:inherit;font-weight:${sel ? "700" : "500"};font-size:13px`
+      }));
+    });
+    wrap.appendChild(picker);
+  }
+
+  const emp = S.employees.find(e => e.id === S.empViewId);
+  if (!emp) {
+    wrap.appendChild(div("card", [e("div", { style: "text-align:center;padding:40px;color:#64748B" }, ["בחר עובד לצפייה"])]));
+    return wrap;
+  }
+
+  const idx = empIdx(emp.id);
+  const col = ec(idx);
+  const wd = getWeekDates(S.weekOffset);
+
+  // כרטיס פרטי עובד
+  wrap.appendChild(e("div", { style: `background:#1E293B;border:1px solid ${col}44;border-radius:16px;padding:18px;margin-bottom:14px` }, [
+    e("div", { style: "display:flex;align-items:center;gap:14px" }, [
+      e("div", { style: `width:48px;height:48px;border-radius:14px;background:${col}22;border:1px solid ${col}44;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:${col};flex-shrink:0` },
+        emp.name.split(" ").map(n => n[0]).join("").slice(0, 2)),
+      e("div", { style: "flex:1" }, [
+        e("div", { style: "font-weight:800;font-size:17px;color:#E2E8F0" }, emp.name),
+        e("div", { style: "font-size:12px;color:#64748B;margin-top:2px" }, emp.role === "admin" || emp.role === "manager" ? "מנהל" : "עובד")
+      ])
+    ])
+  ]));
+
+  // טאבים
+  const tabs = [["shifts", "📋 שלי"], ["schedule", "📅 סידור"], ["avail", "🚫 חסימות"], ["vacation", "🌴 היעדרויות"], ["swaps_emp", "🔄 חילופים"]];
+  if (!S.empViewTab) S.empViewTab = "shifts";
+  wrap.appendChild(e("div", { class: "emp-view-tabs" }, tabs.map(([id, lbl]) =>
+    btn("ev-tab" + (S.empViewTab === id ? " active" : ""), lbl, () => { S.empViewTab = id; render(); })
+  )));
+
+  // --- תוכן הטאב ---
+  if (S.empViewTab === "shifts") {
+    // קוד הצגת משמרות אישיות (כפי שהיה קודם)
+    wrap.appendChild(e("div", { style: "font-weight:900;font-size:22px;color:#E2E8F0;margin:10px 0" }, "המשמרות שלי השבוע"));
+    const myShifts = [];
+    wd.forEach(date => {
+      SHIFTS.forEach(sh => {
+        if ((S.schedule[date]?.[sh.id] || []).includes(emp.id)) {
+          myShifts.push({ date, shift: sh });
+        }
+      });
+    });
     const card = div("card");
+    if (myShifts.length === 0) {
+      card.appendChild(e("div", { style: "text-align:center;padding:24px;color:#64748B" }, "אין לך משמרות משובצות לשבוע זה"));
+    } else {
+      myShifts.forEach(s => {
+        card.appendChild(e("div", { style: `border-bottom:1px solid #334155;padding:12px 0;display:flex;justify-content:space-between` }, [
+          e("div", {}, [
+            e("div", { style: `font-weight:700;color:${s.shift.color}` }, DAYS[new Date(s.date + "T00:00:00").getDay()] + " - " + s.shift.label),
+            e("div", { style: "font-size:12px;color:#94A3B8" }, fmtDate(s.date))
+          ]),
+          e("div", { style: "font-weight:700" }, s.shift.start + " - " + s.shift.end)
+        ]));
+      });
+    }
+    wrap.appendChild(card);
+  } 
+  
+  else if (S.empViewTab === "avail") {
+    // --- טאב חסימות מעודכן ---
+    const targetOffset = S.availTargetOffset || 1;
+    const targetDates = getWeekDates(S.weekOffset + targetOffset);
+    const blockLimits = emp.block_limits || { weekday: { morning: 3, afternoon: 3, night: 1 }, weekend_total: 1 };
+    
+    // המרה לפורמט החדש אם נדרש
+    if (blockLimits.weekend && typeof blockLimits.weekend === 'object') {
+        blockLimits.weekend_total = Math.max(...Object.values(blockLimits.weekend), 1);
+    }
 
-    card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
-      btn("",`שבוע הבא`,()=>{S.availTargetOffset=1;S.availDraft={};render();},{style:`flex:1;padding:10px;border-radius:10px;border:1px solid ${targetOffset===1?"#EF4444aa":"#334155"};background:${targetOffset===1?"#EF444422":"#1E293B"};color:${targetOffset===1?"#EF4444":"#94A3B8"};font-family:inherit;font-size:13px;font-weight:700`}),
-      btn("",`עוד שבועיים`,()=>{S.availTargetOffset=2;S.availDraft={};render();},{style:`flex:1;padding:10px;border-radius:10px;border:1px solid ${targetOffset===2?"#EF4444aa":"#334155"};background:${targetOffset===2?"#EF444422":"#1E293B"};color:${targetOffset===2?"#EF4444":"#94A3B8"};font-family:inherit;font-size:13px;font-weight:700`})
+    const availCard = div("card");
+    
+    // בחירת שבוע
+    availCard.appendChild(e("div", { style: "display:flex;gap:6px;margin-bottom:14px" }, [
+      btn("", `שבוע הבא`, () => { S.availTargetOffset = 1; S.availDraft = {}; render(); }, { style: `flex:1;padding:10px;border-radius:10px;border:1px solid ${targetOffset === 1 ? "#EF4444aa" : "#334155"};background:${targetOffset === 1 ? "#EF444422" : "#1E293B"};color:${targetOffset === 1 ? "#EF4444" : "#94A3B8"};font-weight:700` }),
+      btn("", `עוד שבועיים`, () => { S.availTargetOffset = 2; S.availDraft = {}; render(); }, { style: `flex:1;padding:10px;border-radius:10px;border:1px solid ${targetOffset === 2 ? "#EF4444aa" : "#334155"};background:${targetOffset === 2 ? "#EF444422" : "#1E293B"};color:${targetOffset === 2 ? "#EF4444" : "#94A3B8"};font-weight:700` })
     ]));
 
-    card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},
-      fmtDate(targetDates[0]) + " — " + fmtDate(targetDates[6])));
+    // תצוגת מכסות (Quota)
+    const currentWeekendUsed = getBlockCount(null, true, targetDates);
+    const weekendLimit = blockLimits.weekend_total ?? 1;
 
-    // Quota display per shift type
-    const quotaCard = e("div",{style:"background:#1E293B;border:1px solid #334155;border-radius:10px;padding:12px;margin-bottom:14px"});
-    quotaCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"🚫 מכסת חסימות"));
-    quotaCard.appendChild(e("div",{style:"display:grid;grid-template-columns:1fr 1fr;gap:8px"},[
-      e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
-        e("div",{style:"font-size:11px;color:#3B82F6;font-weight:700;margin-bottom:6px"},"ראשון — חמישי"),
-        ...SHIFTS.map(sh=>{
-          const lim = blockLimits.weekday?.[sh.id]??3;
-          const used = getBlockCount(sh.id, false);
-          return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
-            e("span",{style:"color:"+sh.color},sh.label),
-            e("span",{style:`font-weight:700;color:${used>=lim?"#EF4444":"#94A3B8"}`},`${used}/${lim}`)
+    const quotaBox = e("div", { style: "background:#0F172A;border-radius:12px;padding:12px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px" }, [
+      e("div", {}, [
+        e("div", { style: "font-size:11px;color:#3B82F6;font-weight:700" }, "חול (לפי משמרת)"),
+        ...SHIFTS.map(sh => {
+          const used = getBlockCount(sh.id, false, targetDates);
+          const lim = blockLimits.weekday?.[sh.id] ?? 3;
+          return e("div", { style: "font-size:10px;display:flex;justify-content:space-between" }, [
+            e("span", {}, sh.label), e("span", { style: `color:${used >= lim ? "#EF4444" : "#94A3B8"}` }, `${used}/${lim}`)
           ]);
         })
       ]),
-      e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
-        e("div",{style:"font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px"},"שישי — שבת"),
-        ...SHIFTS.map(sh=>{
-          const lim = blockLimits.weekend?.[sh.id]??1;
-          const used = getBlockCount(sh.id, true);
-          return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
-            e("span",{style:"color:"+sh.color},sh.label),
-            e("span",{style:`font-weight:700;color:${used>=lim?"#EF4444":"#94A3B8"}`},`${used}/${lim}`)
-          ]);
-        })
+      e("div", { style: "border-right:1px solid #334155;padding-right:10px" }, [
+        e("div", { style: "font-size:11px;color:#A855F7;font-weight:700" }, "סופ\"ש (סה\"כ)"),
+        e("div", { style: "font-size:18px;font-weight:900;margin-top:4px;color:" + (currentWeekendUsed >= weekendLimit ? "#EF4444" : "#60A5FA") }, 
+          `${currentWeekendUsed} / ${weekendLimit}`)
       ])
-    ]));
-    card.appendChild(quotaCard);
+    ]);
+    availCard.appendChild(quotaBox);
 
-    {
-      // Default blocks buttons
-      const defaultKey = "blockDefaults_" + emp.id;
-      const savedDefaults = JSON.parse(localStorage.getItem(defaultKey) || "null");
-
-      card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"},[
-        savedDefaults ? btn("btn-sm btn-sm-blue","📥 טען ברירת מחדל",()=>{
-          S.availDraft = {};
-          // Map saved defaults to current week dates
-          savedDefaults.forEach(def => {
-            targetDates.forEach((date, di) => {
-              const dt = new Date(date+"T00:00:00");
-              if (dt.getDay() === def.day) {
-                S.availDraft[di+"|"+def.shift] = true;
-              }
-            });
-          });
-          toast("ברירת מחדל נטענה ✓");
-          render();
-        }) : null,
-        e("div",{style:"font-size:11px;color:#475569;display:flex;align-items:center"},
-          savedDefaults ? "יש ברירת מחדל שמורה" : "אין ברירת מחדל — חסום ולחץ ׳שמור כברירת מחדל׳")
-      ]));
-
-      card.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"לחץ על משמרות שאתה לא יכול לעבוד:"));
-
-      targetDates.forEach((date, di) => {
-        const dt = new Date(date+"T00:00:00");
-        const dayName = DAYS[dt.getDay()];
-        const dayAllowed = allowedSlots[dayName] || [];
-        if (dayAllowed.length === 0) return;
-
-        const dayCard = e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:10px"});
-        const dateStr = dt.getDate()+"/"+(dt.getMonth()+1)+"/"+dt.getFullYear();
-        dayCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"},[
-          e("div",{style:"font-weight:800;font-size:15px;color:#E2E8F0"},dayName),
-          e("div",{style:"font-size:13px;color:#64748B"},dateStr)
-        ]));
-
-        const shiftsRow = e("div",{style:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
-        SHIFTS.forEach(sh => {
-          const key = di+"|"+sh.id;
-          const canBlock = dayAllowed.includes(sh.id);
+    // גריד הימים
+    targetDates.forEach((date, di) => {
+      const dt = new Date(date + "T00:00:00");
+      const isWE = dt.getDay() === 5 || dt.getDay() === 6;
+      const dayBox = e("div", { style: "margin-bottom:10px;padding:10px;background:#0F172A;border-radius:10px" }, [
+        e("div", { style: "display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px" }, [
+          e("b", {}, DAYS[dt.getDay()]), e("span", {}, dt.getDate() + "/" + (dt.getMonth() + 1))
+        ]),
+        e("div", { style: "display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px" }, SHIFTS.map(sh => {
+          const key = di + "|" + sh.id;
           const picked = !!S.availDraft[key];
-          const isWeekend = dt.getDay() === 5 || dt.getDay() === 6;
-          const shiftLimit = isWeekend ? (blockLimits.weekend?.[sh.id]??1) : (blockLimits.weekday?.[sh.id]??3);
-          const shiftUsed = getBlockCount(sh.id, isWeekend);
-          const atLimit = !picked && shiftUsed >= shiftLimit;
+          let atLimit = false;
 
-          if (!canBlock) {
-            shiftsRow.appendChild(e("div",{style:"padding:14px 8px;border-radius:10px;background:#1E293B;color:#475569;text-align:center;font-size:11px"},[
-              e("div",{},sh.label),
-              e("div",{style:"font-size:9px;margin-top:2px"},"לא ניתן")
-            ]));
-            return;
+          if (isWE) {
+            atLimit = !picked && currentWeekendUsed >= weekendLimit;
+          } else {
+            const lim = blockLimits.weekday?.[sh.id] ?? 3;
+            atLimit = !picked && getBlockCount(sh.id, false, targetDates) >= lim;
           }
 
-          shiftsRow.appendChild(e("button",{
-            disabled: atLimit && !picked,
-            style: picked ? `padding:14px 8px;border-radius:10px;background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;cursor:pointer;font-family:inherit` : atLimit ? `padding:14px 8px;border-radius:10px;background:#0F172A;border:1px solid #1E293B;color:#1E293B;cursor:not-allowed;font-family:inherit` : `padding:14px 8px;border-radius:10px;background:#1E293B;border:1px solid ${sh.color}44;color:${sh.color};font-weight:700;cursor:pointer;font-family:inherit`,
-            onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
-          },[
-            e("div",{style:"font-size:13px"},picked?"🚫 "+sh.label:sh.label),
-            e("div",{style:"font-size:9px;opacity:0.8;margin-top:2px"},sh.start+"-"+sh.end)
-          ]));
-        });
-        dayCard.appendChild(shiftsRow);
-        card.appendChild(dayCard);
-      });
-
-      const selKeys = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
-      if (selKeys.length > 0) {
-        card.appendChild(e("div",{style:"margin-top:14px;border-top:1px solid #334155;padding-top:12px"},[
-          e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:10px"},"💬 סיבות (אופציונלי):")
-        ]));
-        selKeys.forEach(key => {
-          const [di,shId] = key.split("|");
-          const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
-          const sh = SHIFT_BY_ID[shId];
-          card.appendChild(e("div",{style:"margin-bottom:8px"},[
-            e("div",{style:`font-size:12px;font-weight:700;color:${sh.color};margin-bottom:4px`},DAYS[dt.getDay()]+" "+dt.getDate()+" — "+sh.label),
-            e("input",{class:"fi",placeholder:"סיבה (אופציונלי)",value:S.blockReasons?.["reason_"+key]||"",
-              oninput:ev=>{if(!S.blockReasons)S.blockReasons={};S.blockReasons["reason_"+key]=ev.target.value;}})
-          ]));
-        });
-      }
-
-      // Special request textarea inside the form
-      card.appendChild(e("div",{style:"margin-top:14px;border-top:1px solid #334155;padding-top:12px"},[
-        e("div",{style:"font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:8px"},"📩 הערה או בקשה מיוחדת למנהל"),
-        e("textarea",{
-          class:"fi",
-          placeholder:"לדוגמה: אני צריך לחסום עוד יום בגלל מבחן...",
-          style:"min-height:60px;resize:vertical",
-          id:"block-special-request"
-        })
-      ]));
-
-      card.appendChild(div("form-actions",[
-        btn("btn-sm btn-sm-blue","💾 שמור כברירת מחדל",()=>{
-          const selKeys2 = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
-          if (!selKeys2.length) { toast("בחר לפחות משמרת אחת","err"); return; }
-          const defaults = selKeys2.map(k => {
-            const [di, shId] = k.split("|");
-            const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
-            return { day: dt.getDay(), shift: shId };
-          });
-          localStorage.setItem("blockDefaults_" + emp.id, JSON.stringify(defaults));
-          toast("ברירת מחדל נשמרה ✓");
-        }),
-        btn("btn-sm btn-sm-red","📤 שלח בקשות חסימה",async()=>{
-          if (!selKeys.length && !document.getElementById("block-special-request")?.value?.trim()) { toast("בחר משמרת או כתוב הודעה","err"); return; }
-          const specialMsg = document.getElementById("block-special-request")?.value?.trim() || "";
-          if (selKeys.length > 0) {
-            const slots = selKeys.map(k=>{
-              const [di,shId]=k.split("|");
-              return {day:new Date(targetDates[parseInt(di)]+"T00:00:00").getDay(),shift:shId,date:targetDates[parseInt(di)],reason:S.blockReasons?.["reason_"+k]||""};
-            });
-            await submitAvailability(emp.id, targetStart, slots, "חסימות");
-          }
-          // Send special message to manager if exists
-          if (specialMsg) {
-            const adminEmp = S.employees.find(e=>e.role==="admin"||e.role==="manager");
-            if (adminEmp?.email) {
-              sendEmail("block_message", adminEmp?.email, {
-              requesterName: emp.name,
-              targetDate: fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6]),
-              shiftLabel: "בקשה מיוחדת לחסימות",
-              note: specialMsg
-            });
-
-            }
-          }
-          S.availDraft={}; S.blockReasons={};
-          toast("נשלח בהצלחה ✓"); render();
-        },{style:"flex:1"}),
-        btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};S.blockReasons={};render();})
-      ],{style:"margin-top:12px"}));
-    }
-
-    wrap.appendChild(card);
-
-    } // end deadline else
-
-    // History — all past submissions
-    const myPastSubs = (S.availSubmissions||[]).filter(b=>b.employee_id===emp.id);
-    const myPastBlocks = myPastSubs;
-    if (myPastSubs.length > 0) {
-      const histCard = div("card",[
-        e("div",{style:"font-weight:800;font-size:14px;color:#94A3B8;margin-bottom:12px"},"📜 חסימות שהגשת בעבר")
+          return e("button", {
+            disabled: atLimit,
+            style: picked ? `background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;padding:10px 4px;border-radius:8px` : 
+                    atLimit ? `background:#1E293B;border:1px solid #0F172A;color:#334155;padding:10px 4px;border-radius:8px` :
+                    `background:#1E293B;border:1px solid ${sh.color}44;color:${sh.color};padding:10px 4px;border-radius:8px`,
+            onclick: () => { S.availDraft[key] = !picked; render(); }
+          }, sh.label);
+        }))
       ]);
+      availCard.appendChild(dayBox);
+    });
 
-      myPastSubs.sort((a,b) => (b.week_start||"").localeCompare(a.week_start||"")).forEach(sub => {
-        const wk = sub.week_start;
-        histCard.appendChild(e("div",{style:"font-weight:700;font-size:12px;color:#60A5FA;margin-bottom:6px;margin-top:10px"},
-          "שבוע " + (wk ? fmtDate(wk) : "לא ידוע")));
-
-        const slotsGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"});
-        (sub.slots||[]).sort((a,b) => (a.date||"").localeCompare(b.date||"")).forEach(sl => {
-          const sh = SHIFT_BY_ID[sl.shift];
-          const dt = sl.date ? new Date(sl.date+"T00:00:00") : null;
-          const dayLabel = dt ? (DAYS[dt.getDay()]+" "+dt.getDate()+"/"+(dt.getMonth()+1)) : ("יום "+(DAYS[sl.day]||sl.day));
-          slotsGrid.appendChild(e("div",{style:"background:#1E293B;border:1px solid "+(sh?.color||"#64748B")+"44;border-radius:8px;padding:6px 10px"},[
-            e("div",{style:"font-weight:700;font-size:11px;color:"+(sh?.color||"#94A3B8")},dayLabel),
-            e("div",{style:"font-size:10px;color:"+(sh?.color||"#64748B")},sh?.label||sl.shift),
-            sl.reason ? e("div",{style:"font-size:9px;color:#FCA5A5;margin-top:2px"},"💬 "+sl.reason) : null
-          ]));
+    availCard.appendChild(btn("btn-add", "📤 שלח חסימות", async () => {
+        const selKeys = Object.entries(S.availDraft).filter(([k, v]) => v).map(([k]) => k);
+        const slots = selKeys.map(k => {
+            const [di, sid] = k.split("|");
+            return { date: targetDates[parseInt(di)], shift: sid, day: new Date(targetDates[parseInt(di)]+"T00:00:00").getDay() };
         });
-        histCard.appendChild(slotsGrid);
+        await submitAvailability(emp.id, targetDates[0], slots, "");
+        S.availDraft = {}; render();
+    }, { style: "width:100%;margin-top:10px" }));
 
-        if (sub.note) {
-          histCard.appendChild(e("div",{style:"font-size:11px;color:#F59E0B;font-style:italic;margin-bottom:8px"},"📩 "+sub.note));
-        }
-      });
-      wrap.appendChild(histCard);
-    }
-
-
-  }
-
-  else if (S.empViewTab==="vacation") {
-    wrap.appendChild(viewEmpVacations());
-  }
-  else if (S.empViewTab==="swaps_emp") {
-    wrap.appendChild(viewSwaps(true));
-  }
+    wrap.appendChild(availCard);
+  } 
+  
+  else if (S.empViewTab === "vacation") wrap.appendChild(viewEmpVacations());
+  else if (S.empViewTab === "swaps_emp") wrap.appendChild(viewSwaps(true));
+  else if (S.empViewTab === "schedule") wrap.appendChild(div("card", ["תצוגת סידור מלאה בקריאה בלבד"]));
 
   return wrap;
 }
@@ -2940,32 +2901,84 @@ function viewConstraintsModal() {
   const emp = S.constraintsEmp;
   if (!emp) return null;
 
-  const WEEKDAYS = ["ראשון","שני","שלישי","רביעי","חמישי"];
-  const WEEKEND = ["שישי","שבת"];
-
-  let localDC = JSON.parse(JSON.stringify(emp.day_constraints||{}));
-  let localMax = emp.max_shifts_per_week||5;
-  let localPerShift = JSON.parse(JSON.stringify(emp.max_per_shift||{}));
-  let localAvail = [...(emp.availability||DAYS)];
-  let localPref = [...(emp.preferred_shifts||[])];
-  let localActiveDays = [...(emp.active_days || [0,1,2,3,4,5,6])]; // 0=Sun..6=Sat
-  let localWorkShifts = [...(emp.allowed_shifts || SHIFTS.map(s=>s.id))];
-  let localExcludeFrom = emp.exclude_from || null;
-  let localExcludeTo = emp.exclude_to || null;
-  let localExcludeReason = emp.exclude_reason || "";
-  let localMaxBlocks = emp.max_blocks_per_week ?? 99;
+  // הכנת הנתונים וטיפול בערך הקודם (Migration)
   let localBlockLimits = JSON.parse(JSON.stringify(emp.block_limits || {
     weekday: { morning: 3, afternoon: 3, night: 1 },
-    weekend: { morning: 1, afternoon: 1, night: 1 }
+    weekend_total: 1
   }));
-  let localAllowedBlocks = JSON.parse(JSON.stringify(emp.allowed_block_slots||{}));
+
+  // אם הנתונים ב-DB הם עדיין בפורמט הישן (אובייקט של משמרות), נמיר למספר אחד
+  if (localBlockLimits.weekend && typeof localBlockLimits.weekend === 'object') {
+    localBlockLimits.weekend_total = Math.max(...Object.values(localBlockLimits.weekend), 1);
+    delete localBlockLimits.weekend;
+  }
+
+  let localMax = emp.max_shifts_per_week || 5;
+  let localActiveDays = [...(emp.active_days || [0,1,2,3,4,5,6])];
+  let localWorkShifts = [...(emp.allowed_shifts || SHIFTS.map(s=>s.id))];
 
   const modal = div("modal");
-  const mh = div("modal-header",[
-    div("modal-title",[`הגבלות — ${emp.name}`]),
-    btn("modal-close","✕",()=>{S.constraintsEmp=null;render();})
+  const mh = div("modal-header", [
+    div("modal-title", [`הגבלות — ${emp.name}`]),
+    btn("modal-close", "✕", () => { S.constraintsEmp = null; render(); })
   ]);
   modal.appendChild(mh);
+
+  // כרטיס מכסות חסימה
+  const limCard = div("card", [
+    e("div", { class: "form-label", style: "margin-bottom: 10px" }, "🚫 מכסת חסימות מותרת")
+  ]);
+
+  // ימי חול - נשאר לפי משמרת
+  limCard.appendChild(e("div", { style: "font-weight: 700; font-size: 13px; color: #3B82F6; margin-bottom: 8px" }, "ראשון — חמישי (לפי משמרת)"));
+  const wdRow = e("div", { style: "display: flex; gap: 10px; margin-bottom: 14px" });
+  SHIFTS.forEach(sh => {
+    wdRow.appendChild(div("form-col", [
+      e("label", { style: "font-size: 11px; font-weight: 700; color: " + sh.color }, sh.label),
+      e("input", { 
+        class: "fi", type: "number", min: 0, max: 5, 
+        value: localBlockLimits.weekday?.[sh.id] ?? 3, 
+        style: "text-align: center",
+        oninput: ev => { 
+          if (!localBlockLimits.weekday) localBlockLimits.weekday = {};
+          localBlockLimits.weekday[sh.id] = parseInt(ev.target.value) || 0; 
+        }
+      })
+    ]));
+  });
+  limCard.appendChild(wdRow);
+
+  // סוף שבוע - שינוי לסך הכל
+  limCard.appendChild(e("div", { style: "font-weight: 700; font-size: 13px; color: #A855F7; margin-bottom: 8px" }, "שישי — שבת (סך הכל)"));
+  limCard.appendChild(div("form-row", [
+    div("form-col", [
+      e("label", { style: "font-size: 11px; color: #94A3B8; margin-bottom: 4px" }, "מקסימום חסימות לכל סופ\"ש (מתוך 4 משמרות)"),
+      e("input", { 
+        class: "fi", type: "number", min: 0, max: 4, 
+        value: localBlockLimits.weekend_total ?? 1, 
+        style: "text-align: center",
+        oninput: ev => { localBlockLimits.weekend_total = parseInt(ev.target.value) || 0; }
+      })
+    ])
+  ]));
+
+  modal.appendChild(limCard);
+
+  // כפתורי שמירה
+  modal.appendChild(div("form-actions", [
+    btn("btn-add", "שמור הגבלות", async () => {
+      await saveConstraints(emp.id, {
+        maxShifts: localMax,
+        blockLimits: localBlockLimits,
+        activeDays: localActiveDays,
+        allowedShifts: localWorkShifts
+      });
+    }, { style: "flex:1" }),
+    btn("btn-sm btn-sm-gray", "ביטול", () => { S.constraintsEmp = null; render(); })
+  ]));
+
+  return div("modal-bg", [modal], { onclick: ev => { if(ev.target.classList.contains("modal-bg")){ S.constraintsEmp = null; render(); } } });
+}
 
   function rebuildModal() {
     // Clear and rebuild
