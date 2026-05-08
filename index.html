@@ -277,6 +277,15 @@ const SHIFTS = [
   { id:"afternoon", label:"צהריים", start:"15:00", end:"23:00", color:"#10B981" },
   { id:"night",     label:"לילה",   start:"23:00", end:"07:00", color:"#6366F1" },
 ];
+const WEEKEND_SHIFTS = [
+  { id:"morning",   label:"בוקר",   start:"07:00", end:"19:00", color:"#F59E0B" },
+  { id:"night",     label:"לילה",   start:"19:00", end:"07:00", color:"#6366F1" },
+];
+function getShiftsForDate(date) {
+  const dt = new Date(date+"T00:00:00");
+  const day = dt.getDay();
+  return (day === 5 || day === 6) ? WEEKEND_SHIFTS : SHIFTS;
+}
 const SHIFT_BY_ID = Object.fromEntries(SHIFTS.map(s=>[s.id,s]));
 const SHIFT_LABELS = Object.fromEntries(SHIFTS.map(s=>[s.id,s.label]));
 const EMP_COLORS = ["#3B82F6","#EC4899","#14B8A6","#F97316","#8B5CF6","#EF4444","#06B6D4","#84CC16","#F59E0B","#6366F1"];
@@ -361,16 +370,20 @@ function empIdx(id) { return S.employees.findIndex(e=>e.id===id); }
 // ══════════════════════════════════════════════════════
 // SMART SCHEDULE ALGORITHM
 // ══════════════════════════════════════════════════════
-function runSmartSchedule() {
+async function runSmartSchedule() {
+  // Reload blocks to ensure fresh data
+  await loadAvailSubmissions();
   const weekDates = getWeekDates(S.weekOffset).map(d=>new Date(d+"T00:00:00"));
   const shiftIds = SHIFTS.map(s=>s.id);
   const newSched = {};
   const totalCount = {};
   const shiftTypeCount = {};
 
+  const weekendCount = {};
   S.employees.forEach(emp => {
     totalCount[emp.id] = 0;
     shiftTypeCount[emp.id] = {};
+    weekendCount[emp.id] = 0;
   });
 
   weekDates.forEach((dateObj, dayIdx) => {
@@ -378,7 +391,12 @@ function runSmartSchedule() {
     const dayName = DAYS[dateObj.getDay()];
     newSched[dateStr] = {};
 
-    shiftIds.forEach((shiftId, shIdx) => {
+    // On weekends (Fri/Sat), skip afternoon shift
+    const dayOfWeek = dateObj.getDay();
+    const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
+    const dayShiftIds = isWeekend ? shiftIds.filter(s => s !== "afternoon") : shiftIds;
+
+    dayShiftIds.forEach((shiftId, shIdx) => {
       const lockedKey = dateStr+"|"+shiftId;
       const lockedEmpIds = S.lockedSlots[lockedKey] ? [...S.lockedSlots[lockedKey]] : [];
       newSched[dateStr][shiftId] = [...lockedEmpIds];
@@ -405,14 +423,21 @@ function runSmartSchedule() {
 
           // Active days check (0=Sun..6=Sat)
           const activeDays = emp.active_days || [0,1,2,3,4,5,6];
-          if (!activeDays.includes(dateObj.getDay())) return null;
+          if (!activeDays.includes(dateObj.getDay())) {
+            return null;
+          }
 
           // Allowed shifts check
           const empAllowedShifts = emp.allowed_shifts || SHIFTS.map(s=>s.id);
-          if (!empAllowedShifts.includes(shiftId)) return null;
+          if (!empAllowedShifts.includes(shiftId)) {
+            return null;
+          }
 
           // Temporary exclusion check
-          if (emp.exclude_from && emp.exclude_to && dateStr >= emp.exclude_from && dateStr <= emp.exclude_to) return null;
+          const dateStrLocal = dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0");
+          if (emp.exclude_from && emp.exclude_to && dateStrLocal >= emp.exclude_from && dateStrLocal <= emp.exclude_to) {
+            return null;
+          }
 
           // Hard blocks
           const onVac = S.vacations.some(v =>
@@ -440,11 +465,34 @@ function runSmartSchedule() {
           if (dayConstraints[dayName]?.[shiftId] === 1) score += 20;
 
           // Block submissions — if employee blocked this shift, skip them
+          const dateStr2 = dateObj.toISOString ? (dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0")) : dateStr;
           const isBlocked = S.availSubmissions.some(s =>
             s.employee_id === emp.id &&
-            (s.slots||[]).some(sl => sl.shift === shiftId && sl.day === dateObj.getDay())
+            (s.slots||[]).some(sl => {
+              // Match by exact date first
+              if (sl.date && sl.date === dateStr2) return sl.shift === shiftId;
+              // Fallback: match by day of week + same week
+              if (s.week_start === weekDates[0].toISOString?.().split("T")[0] || s.week_start === getWeekDates(S.weekOffset)[0]) {
+                return sl.shift === shiftId && sl.day === dateObj.getDay();
+              }
+              return false;
+            })
           );
-          if (isBlocked) return null; // don't assign blocked shifts
+          if (isBlocked) return null;
+
+          // Weekend fairness — prefer employees with fewer weekend shifts
+          if (isWeekend) {
+            score -= (weekendCount[emp.id]||0) * 25;
+            // Variety: if employee already has THIS shift type this weekend, penalize
+            const sameShiftThisWeekend = weekDates
+              .filter(wd => { const d = wd.getDay(); return d === 5 || d === 6; })
+              .filter(wd => wd !== dateObj)
+              .some(wd => {
+                const wdStr = wd.getFullYear()+"-"+String(wd.getMonth()+1).padStart(2,"0")+"-"+String(wd.getDate()).padStart(2,"0");
+                return (newSched[wdStr]?.[shiftId]||[]).includes(emp.id);
+              });
+            if (sameShiftThisWeekend) score -= 40; // penalize same shift type on weekend
+          }
 
           // Avoid back-to-back: night → morning
           if (dayIdx > 0 && shIdx === 0) {
@@ -466,6 +514,7 @@ function runSmartSchedule() {
       toAdd.forEach(id => {
         totalCount[id] = (totalCount[id]||0)+1;
         shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
+        if (isWeekend) weekendCount[id] = (weekendCount[id]||0)+1;
       });
     });
   });
@@ -922,7 +971,7 @@ async function deleteEmployee(id) {
 }
 
 async function saveConstraints(empId, data) {
-  await sb.from("profiles").update({
+  const updateData = {
     max_shifts_per_week: data.maxShifts,
     max_per_shift: data.maxPerShift,
     day_constraints: data.dayConstraints,
@@ -934,8 +983,18 @@ async function saveConstraints(empId, data) {
     exclude_from: data.excludeFrom || null,
     exclude_to: data.excludeTo || null,
     exclude_reason: data.excludeReason || null,
-  }).eq("id", empId);
+  };
+  console.log("💾 Saving constraints for", empId, updateData);
+  const {error} = await sb.from("profiles").update(updateData).eq("id", empId);
+  if (error) { 
+    console.error("💾 Save error:", error);
+    toast("שגיאה בשמירה: " + error.message, "err"); 
+    return; 
+  }
   await loadEmployees();
+  // Verify save worked
+  const saved = getEmp(empId);
+  console.log("💾 Saved employee data:", saved?.active_days, saved?.allowed_shifts);
   S.constraintsEmp = null;
   toast("הגבלות נשמרו ✓"); render();
 }
