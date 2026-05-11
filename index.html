@@ -1028,8 +1028,8 @@ async function addVacation() {
   if (error) { toast("שגיאה: " + error.message, "err"); return; }
 
   // שלח מייל למנהל
-  const adminEmp = S.employees.find(e => e.role === "admin" || e.role === "manager");
-  if (adminEmp?.email) {
+  const allManagers = S.employees.filter(e => (e.role === "admin" || e.role === "manager") && e.email);
+  allManagers.forEach(adminEmp => {
     const reqEmp = getEmp(empId) || S.profile;
     const typeLabel = type === "reserve" ? "מילואים 🎖️" : type === "exam" ? "מבחן 📝" : "חופשה 🌴";
     sendEmail("absence_request", adminEmp.email, {
@@ -1040,7 +1040,7 @@ async function addVacation() {
       endDate: S.newVac.endDate,
       reason: S.newVac.reason || ""
     });
-  }
+  });
 
   const labels = { vacation: "חופשה 🌴", reserve: "מילואים 🎖️", exam: "מבחן 📝" };
   toast(`בקשת ${labels[type] || "היעדרות"} נשלחה לאישור מנהל ✓`);
@@ -1965,13 +1965,13 @@ async function processPeerDecision(swap, isApproved) {
 
   // אם העובד אישר, עכשיו שולחים את המייל למנהל!
   if (isApproved) {
-    const adminEmp = S.employees.find(e => e.role === "admin" || e.role === "manager");
+    const allMgrs = S.employees.filter(e => (e.role === "admin" || e.role === "manager") && e.email);
     const giverEmp = getEmp(swap.giver_id);
     const takerEmp = getEmp(swap.taker_id);
     const sh = SHIFT_BY_ID[swap.shift];
     const tSh = SHIFT_BY_ID[swap.target_shift];
     
-    if (adminEmp?.email) {
+    allMgrs.forEach(adminEmp => {
       let shiftLabel = "";
       let tDateStr = fmtDate(swap.date);
       
@@ -1990,7 +1990,7 @@ async function processPeerDecision(swap, isApproved) {
         shiftLabel: shiftLabel,
         note: swap.note || ""
       });
-    }
+    });
     toast("אישרת את הבקשה! הועבר לאישור מנהל ✓");
   } else {
     toast("דחית את הבקשה");
@@ -2410,8 +2410,7 @@ function viewSwaps(forceEmployee) {
             }]);
             if(error){toast("שגיאה: " + error.message,"err");return;}
             await loadSwapRequests();
-            const adminEmp2 = S.employees.find(e=>e.role==="admin"||e.role==="manager");
-            if(adminEmp2?.email){
+            S.employees.filter(e=>(e.role==="admin"||e.role==="manager") && e.email).forEach(adminEmp2 => {
               const viewingEmp = S.testAsEmployee ? getEmp(S.empViewId) : S.profile;
               sendEmail("swap_request",adminEmp2.email,{
                 title: "➕ בקשת הצטרפות למשמרת", 
@@ -2420,7 +2419,7 @@ function viewSwaps(forceEmployee) {
                 shiftLabel: (shift.label + " (" + shift.start + "–" + shift.end + ")"),
                 note: ""
               });
-            }
+            });
             toast("הבקשה נשלחה למנהל ✓");render();
           })
         ]));
