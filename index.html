@@ -312,7 +312,7 @@ let S = {
   newEmp: {name:"",email:"",idNumber:"",phone:"",role:"employee"},
   newVac: {employeeId:"",startDate:"",endDate:"",reason:""},
   availDraft: {}, availTargetOffset: 1,
-  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null, monthOffset: 0, blocksWeekOffset: 0,
+  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null, monthOffset: 0, blocksWeekOffset: 0, mgrBlocksTab: "team",
   currentPublishType: null, showBlocksModal: false,
   toast: null, modal: null,
   loginMode: "login",
@@ -3686,8 +3686,85 @@ function viewEmpSettings() {
   // ── MANAGER BLOCKS VIEW ──
 function viewManagerBlocks() {
   const wrap = e("div");
-  wrap.appendChild(div("page-title", ["🚫 ניהול חסימות עובדים"], {style:"margin-bottom:16px"}));
+  wrap.appendChild(div("page-title", ["🚫 חסימות"], {style:"margin-bottom:16px"}));
 
+  // Tabs: my blocks vs team blocks
+  if (!S.mgrBlocksTab) S.mgrBlocksTab = "team";
+  const tabRow = e("div",{style:"display:flex;gap:6px;margin-bottom:14px"});
+  [{id:"mine",label:"🚫 החסימות שלי"},{id:"team",label:"👥 חסימות עובדים"}].forEach(t=>{
+    const isActive = S.mgrBlocksTab===t.id;
+    tabRow.appendChild(e("button",{
+      style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(isActive?"#3B82F6":"#334155")+";background:"+(isActive?"#3B82F622":"#1E293B")+";color:"+(isActive?"#60A5FA":"#64748B")+";font-family:inherit;font-weight:700;font-size:13px",
+      onclick:()=>{S.mgrBlocksTab=t.id;render();}
+    },t.label));
+  });
+  wrap.appendChild(tabRow);
+
+  // "My blocks" tab - reuse employee block form
+  if (S.mgrBlocksTab === "mine") {
+    S.empViewId = S.user.id;
+    S.empViewTab = "avail";
+    const emp = S.employees.find(e=>e.id===S.user.id);
+    if (emp) {
+      // Inline the avail form for the manager
+      const targetOffset = S.availTargetOffset || 1;
+      const targetDates = getWeekDates(S.weekOffset + targetOffset);
+      const targetStart = targetDates[0];
+      const blockLimits = emp.block_limits || { weekday:{morning:3,afternoon:3,night:1}, weekend:{morning:1,afternoon:1,night:1} };
+
+      const card = div("card");
+      card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
+        btn("","שבוע הבא",()=>{S.availTargetOffset=1;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===1?"#EF4444aa":"#334155")+";background:"+(targetOffset===1?"#EF444422":"#1E293B")+";color:"+(targetOffset===1?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"}),
+        btn("","עוד שבועיים",()=>{S.availTargetOffset=2;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===2?"#EF4444aa":"#334155")+";background:"+(targetOffset===2?"#EF444422":"#1E293B")+";color:"+(targetOffset===2?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"})
+      ]));
+      card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6])));
+      card.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"לחץ על משמרות שאתה לא יכול לעבוד:"));
+
+      targetDates.forEach((date, di) => {
+        const dt = new Date(date+"T00:00:00");
+        const dayName = DAYS[dt.getDay()];
+        const dayCard = e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:10px"});
+        dayCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"},[
+          e("div",{style:"font-weight:800;font-size:15px;color:#E2E8F0"},dayName),
+          e("div",{style:"font-size:13px;color:#64748B"},dt.getDate()+"/"+(dt.getMonth()+1))
+        ]));
+        const shiftsRow = e("div",{style:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
+        SHIFTS.forEach(sh => {
+          const key = di+"|"+sh.id;
+          const picked = !!S.availDraft[key];
+          shiftsRow.appendChild(e("button",{
+            style: picked ? "padding:14px 8px;border-radius:10px;background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;cursor:pointer;font-family:inherit" : "padding:14px 8px;border-radius:10px;background:#1E293B;border:1px solid "+sh.color+"44;color:"+sh.color+";font-weight:700;cursor:pointer;font-family:inherit",
+            onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
+          },[
+            e("div",{style:"font-size:13px"},picked?"🚫 "+sh.label:sh.label),
+            e("div",{style:"font-size:9px;opacity:0.8;margin-top:2px"},sh.start+"-"+sh.end)
+          ]));
+        });
+        dayCard.appendChild(shiftsRow);
+        card.appendChild(dayCard);
+      });
+
+      const selKeys = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
+      card.appendChild(div("form-actions",[
+        btn("btn-sm btn-sm-red","📤 שלח חסימות",async()=>{
+          if (!selKeys.length) { toast("בחר לפחות משמרת אחת","err"); return; }
+          const slots = selKeys.map(k=>{
+            const [di,shId]=k.split("|");
+            return {day:new Date(targetDates[parseInt(di)]+"T00:00:00").getDay(),shift:shId,date:targetDates[parseInt(di)],reason:""};
+          });
+          await submitAvailability(emp.id, targetStart, slots, "חסימות מנהל");
+          S.availDraft={};
+          toast("חסימות נשלחו ✓"); render();
+        },{style:"flex:1"}),
+        btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};render();})
+      ],{style:"margin-top:12px"}));
+
+      wrap.appendChild(card);
+    }
+    return wrap;
+  }
+
+  // Team blocks tab
   // Week navigation
   if (!S.blocksWeekOffset) S.blocksWeekOffset = 0;
   const viewWeekDates = getWeekDates(S.blocksWeekOffset);
