@@ -312,7 +312,7 @@ let S = {
   newEmp: {name:"",email:"",idNumber:"",phone:"",role:"employee"},
   newVac: {employeeId:"",startDate:"",endDate:"",reason:""},
   availDraft: {}, availTargetOffset: 1,
-  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null, monthOffset: 0, blocksWeekOffset: 0, mgrBlocksTab: "team",
+  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null, monthOffset: 0, blocksWeekOffset: 0, mgrBlocksTab: "team", mgrSwapsTab: "approve",
   currentPublishType: null, showBlocksModal: false,
   toast: null, modal: null,
   loginMode: "login",
@@ -1372,6 +1372,13 @@ function viewSchedule() {
       btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;S.selectedCell=null;loadSchedule().then(()=>render());}),
       !isManager() && S.weekOffset >= 0 && !S.publishedInitial?.has(getWeekDates(S.weekOffset+1)[0]) && !S.publishedWeeks.has(getWeekDates(S.weekOffset+1)[0]) ? null : btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
       isManager() ? btn("btn-green","⚡ שיבוץ אוטומטי",runSmartSchedule) : null,
+      isManager() ? btn("btn-sm btn-sm-red","🗑️ נקה שבוע",()=>{
+        if(!confirm("למחוק את כל השיבוצים של השבוע הזה?")) return;
+        const wd2 = getWeekDates(S.weekOffset);
+        wd2.forEach(d=>{if(S.schedule[d]) SHIFTS.forEach(sh=>{S.schedule[d][sh.id]=[];});});
+        saveScheduleToDB();
+        toast("השבוע נוקה ✓");render();
+      }) : null,
       isManager() && !isPublished ? btn("btn-purple","📢 פרסם",()=>{S.showPublishModal=true;render();}) : null
     ])
   ]);
@@ -2002,8 +2009,35 @@ function viewSwaps(forceEmployee) {
 
   const myEmpId = S.testAsEmployee ? S.empViewId : S.user.id;
 
-  // ══ מנהל: אישור בקשות (התחנה הסופית) ══
+  // ══ מנהל: טאבים — שלי / אישור בקשות ══
   if (isManager() && !forceEmployee) {
+    if (!S.mgrSwapsTab) S.mgrSwapsTab = "approve";
+    const swapTabRow = e("div",{style:"display:flex;gap:6px;margin-bottom:14px"});
+    [{id:"mine",label:"🔄 החילופים שלי"},{id:"approve",label:"👥 אישור בקשות"}].forEach(t=>{
+      const isActive = S.mgrSwapsTab===t.id;
+      swapTabRow.appendChild(e("button",{
+        style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(isActive?"#3B82F6":"#334155")+";background:"+(isActive?"#3B82F622":"#1E293B")+";color:"+(isActive?"#60A5FA":"#64748B")+";font-family:inherit;font-weight:700;font-size:13px",
+        onclick:()=>{S.mgrSwapsTab=t.id;render();}
+      },t.label));
+    });
+    wrap.appendChild(swapTabRow);
+
+    // Manager's personal swaps tab
+    if (S.mgrSwapsTab === "mine") {
+      // Render the employee swap view for the manager
+      const mgrSwapContent = viewSwaps(true);
+      // Copy children from the returned element
+      while (mgrSwapContent.firstChild) {
+        // Skip the title (already have it)
+        const child = mgrSwapContent.firstChild;
+        mgrSwapContent.removeChild(child);
+        if (child.classList?.contains("page-title")) continue;
+        wrap.appendChild(child);
+      }
+      return wrap;
+    }
+
+    // Approval tab (existing code continues)
     const pending = S.swaps.filter(s => s.status === "pending_manager" || s.status === "pending_approval");
 
     if (pending.length === 0) {
@@ -3688,38 +3722,105 @@ function viewManagerBlocks() {
 
   // "My blocks" tab - reuse employee block form
   if (S.mgrBlocksTab === "mine") {
-    S.empViewId = S.user.id;
-    S.empViewTab = "avail";
     const emp = S.employees.find(e=>e.id===S.user.id);
     if (emp) {
-      // Inline the avail form for the manager
       const targetOffset = S.availTargetOffset || 1;
       const targetDates = getWeekDates(S.weekOffset + targetOffset);
       const targetStart = targetDates[0];
       const blockLimits = emp.block_limits || { weekday:{morning:3,afternoon:3,night:1}, weekend:{morning:1,afternoon:1,night:1} };
 
+      function getMgrBlockCount(shiftId, isWE) {
+        let count = 0;
+        Object.entries(S.availDraft).forEach(([key,val]) => {
+          if (!val) return;
+          const [di, sid] = key.split("|");
+          if (sid !== shiftId) return;
+          const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
+          const dayIsWE = dt.getDay() === 5 || dt.getDay() === 6;
+          if (dayIsWE === isWE) count++;
+        });
+        return count;
+      }
+
       const card = div("card");
+
+      // Week selector
       card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
         btn("","שבוע הבא",()=>{S.availTargetOffset=1;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===1?"#EF4444aa":"#334155")+";background:"+(targetOffset===1?"#EF444422":"#1E293B")+";color:"+(targetOffset===1?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"}),
         btn("","עוד שבועיים",()=>{S.availTargetOffset=2;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===2?"#EF4444aa":"#334155")+";background:"+(targetOffset===2?"#EF444422":"#1E293B")+";color:"+(targetOffset===2?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"})
       ]));
       card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6])));
+
+      // Quota display
+      const quotaCard2 = e("div",{style:"background:#1E293B;border:1px solid #334155;border-radius:10px;padding:12px;margin-bottom:14px"});
+      quotaCard2.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"🚫 מכסת חסימות"));
+      quotaCard2.appendChild(e("div",{style:"display:grid;grid-template-columns:1fr 1fr;gap:8px"},[
+        e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
+          e("div",{style:"font-size:11px;color:#3B82F6;font-weight:700;margin-bottom:6px"},"ראשון — חמישי"),
+          ...SHIFTS.map(sh=>{
+            const lim = blockLimits.weekday?.[sh.id]??3;
+            const used = getMgrBlockCount(sh.id, false);
+            return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
+              e("span",{style:"color:"+sh.color},sh.label),
+              e("span",{style:"font-weight:700;color:"+(used>=lim?"#EF4444":"#94A3B8")},used+"/"+lim)
+            ]);
+          })
+        ]),
+        e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
+          e("div",{style:"font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px"},"שישי — שבת"),
+          ...SHIFTS.filter(sh=>sh.id!=="afternoon").map(sh=>{
+            const lim = blockLimits.weekend?.[sh.id]??1;
+            const used = getMgrBlockCount(sh.id, true);
+            return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
+              e("span",{style:"color:"+sh.color},sh.label),
+              e("span",{style:"font-weight:700;color:"+(used>=lim?"#EF4444":"#94A3B8")},used+"/"+lim)
+            ]);
+          })
+        ])
+      ]));
+      card.appendChild(quotaCard2);
+
+      // Default buttons
+      const defaultKey = "blockDefaults_" + emp.id;
+      const savedDefaults = JSON.parse(localStorage.getItem(defaultKey) || "null");
+      card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"},[
+        savedDefaults ? btn("btn-sm btn-sm-blue","📥 טען ברירת מחדל",()=>{
+          S.availDraft = {};
+          savedDefaults.forEach(def => {
+            targetDates.forEach((date, di) => {
+              const dt = new Date(date+"T00:00:00");
+              if (dt.getDay() === def.day) S.availDraft[di+"|"+def.shift] = true;
+            });
+          });
+          toast("ברירת מחדל נטענה ✓"); render();
+        }) : null,
+        e("div",{style:"font-size:11px;color:#475569;display:flex;align-items:center"},
+          savedDefaults ? "יש ברירת מחדל שמורה" : "אין ברירת מחדל")
+      ]));
+
       card.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"לחץ על משמרות שאתה לא יכול לעבוד:"));
 
+      // Day cards
       targetDates.forEach((date, di) => {
         const dt = new Date(date+"T00:00:00");
         const dayName = DAYS[dt.getDay()];
+        const isWeekend = dt.getDay() === 5 || dt.getDay() === 6;
         const dayCard = e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:10px"});
         dayCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"},[
           e("div",{style:"font-weight:800;font-size:15px;color:#E2E8F0"},dayName),
           e("div",{style:"font-size:13px;color:#64748B"},dt.getDate()+"/"+(dt.getMonth()+1))
         ]));
-        const shiftsRow = e("div",{style:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
-        SHIFTS.forEach(sh => {
+        const shiftsRow = e("div",{style:"display:grid;grid-template-columns:"+(isWeekend?"1fr 1fr":"1fr 1fr 1fr")+";gap:6px"});
+        SHIFTS.filter(sh => !(isWeekend && sh.id === "afternoon")).forEach(sh => {
           const key = di+"|"+sh.id;
           const picked = !!S.availDraft[key];
+          const shiftLimit = isWeekend ? (blockLimits.weekend?.[sh.id]??1) : (blockLimits.weekday?.[sh.id]??3);
+          const shiftUsed = getMgrBlockCount(sh.id, isWeekend);
+          const atLimit = !picked && shiftUsed >= shiftLimit;
+
           shiftsRow.appendChild(e("button",{
-            style: picked ? "padding:14px 8px;border-radius:10px;background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;cursor:pointer;font-family:inherit" : "padding:14px 8px;border-radius:10px;background:#1E293B;border:1px solid "+sh.color+"44;color:"+sh.color+";font-weight:700;cursor:pointer;font-family:inherit",
+            disabled: atLimit && !picked,
+            style: picked ? "padding:14px 8px;border-radius:10px;background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;cursor:pointer;font-family:inherit" : atLimit ? "padding:14px 8px;border-radius:10px;background:#0F172A;border:1px solid #1E293B;color:#1E293B;cursor:not-allowed;font-family:inherit" : "padding:14px 8px;border-radius:10px;background:#1E293B;border:1px solid "+sh.color+"44;color:"+sh.color+";font-weight:700;cursor:pointer;font-family:inherit",
             onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
           },[
             e("div",{style:"font-size:13px"},picked?"🚫 "+sh.label:sh.label),
@@ -3731,14 +3832,39 @@ function viewManagerBlocks() {
       });
 
       const selKeys = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
+
+      // Single note
+      card.appendChild(e("div",{style:"margin-top:14px;border-top:1px solid #334155;padding-top:12px"},[
+        e("div",{style:"font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:8px"},"💬 פירוט / הערה (אופציונלי)"),
+        e("textarea",{
+          class:"fi",
+          placeholder:"למשל: מבחן ביום ראשון, אירוע משפחתי בשישי...",
+          style:"min-height:70px;resize:vertical",
+          id:"mgr-block-note"
+        })
+      ]));
+
+      // Action buttons
       card.appendChild(div("form-actions",[
+        btn("btn-sm btn-sm-blue","💾 שמור כברירת מחדל",()=>{
+          const selKeys2 = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
+          if (!selKeys2.length) { toast("בחר לפחות משמרת אחת","err"); return; }
+          const defaults = selKeys2.map(k => {
+            const [di, shId] = k.split("|");
+            const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
+            return { day: dt.getDay(), shift: shId };
+          });
+          localStorage.setItem(defaultKey, JSON.stringify(defaults));
+          toast("ברירת מחדל נשמרה ✓");
+        }),
         btn("btn-sm btn-sm-red","📤 שלח חסימות",async()=>{
           if (!selKeys.length) { toast("בחר לפחות משמרת אחת","err"); return; }
+          const mgrNote = document.getElementById("mgr-block-note")?.value?.trim() || "";
           const slots = selKeys.map(k=>{
             const [di,shId]=k.split("|");
             return {day:new Date(targetDates[parseInt(di)]+"T00:00:00").getDay(),shift:shId,date:targetDates[parseInt(di)],reason:""};
           });
-          await submitAvailability(emp.id, targetStart, slots, "חסימות מנהל");
+          await submitAvailability(emp.id, targetStart, slots, mgrNote || "חסימות");
           S.availDraft={};
           toast("חסימות נשלחו ✓"); render();
         },{style:"flex:1"}),
