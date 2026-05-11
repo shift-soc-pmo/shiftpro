@@ -3700,29 +3700,91 @@ function viewManagerBlocks() {
   });
   wrap.appendChild(tabRow);
 
-  // "My blocks" tab - reuse employee block form
+  // "My blocks" tab - full version with quotas + reasons + defaults
   if (S.mgrBlocksTab === "mine") {
-    S.empViewId = S.user.id;
-    S.empViewTab = "avail";
     const emp = S.employees.find(e=>e.id===S.user.id);
     if (emp) {
-      // Inline the avail form for the manager
       const targetOffset = S.availTargetOffset || 1;
       const targetDates = getWeekDates(S.weekOffset + targetOffset);
       const targetStart = targetDates[0];
       const blockLimits = emp.block_limits || { weekday:{morning:3,afternoon:3,night:1}, weekend:{morning:1,afternoon:1,night:1} };
 
+      function getMgrBlockCount(shiftId, isWeekend) {
+        let count = 0;
+        Object.entries(S.availDraft).forEach(([key,val]) => {
+          if (!val) return;
+          const [di, sid] = key.split("|");
+          if (sid !== shiftId) return;
+          const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
+          const isWE = dt.getDay() === 5 || dt.getDay() === 6;
+          if (isWE === isWeekend) count++;
+        });
+        return count;
+      }
+
       const card = div("card");
+
+      // Week selector
       card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
         btn("","שבוע הבא",()=>{S.availTargetOffset=1;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===1?"#EF4444aa":"#334155")+";background:"+(targetOffset===1?"#EF444422":"#1E293B")+";color:"+(targetOffset===1?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"}),
         btn("","עוד שבועיים",()=>{S.availTargetOffset=2;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===2?"#EF4444aa":"#334155")+";background:"+(targetOffset===2?"#EF444422":"#1E293B")+";color:"+(targetOffset===2?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"})
       ]));
       card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6])));
+
+      // Quota display
+      const quotaCard = e("div",{style:"background:#1E293B;border:1px solid #334155;border-radius:10px;padding:12px;margin-bottom:14px"});
+      quotaCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:8px"},"🚫 מכסת חסימות"));
+      quotaCard.appendChild(e("div",{style:"display:grid;grid-template-columns:1fr 1fr;gap:8px"},[
+        e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
+          e("div",{style:"font-size:11px;color:#3B82F6;font-weight:700;margin-bottom:6px"},"ראשון — חמישי"),
+          ...SHIFTS.map(sh=>{
+            const lim = blockLimits.weekday?.[sh.id]??3;
+            const used = getMgrBlockCount(sh.id, false);
+            return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
+              e("span",{style:"color:"+sh.color},sh.label),
+              e("span",{style:"font-weight:700;color:"+(used>=lim?"#EF4444":"#94A3B8")},used+"/"+lim)
+            ]);
+          })
+        ]),
+        e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
+          e("div",{style:"font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px"},"שישי — שבת"),
+          ...SHIFTS.map(sh=>{
+            const lim = blockLimits.weekend?.[sh.id]??1;
+            const used = getMgrBlockCount(sh.id, true);
+            return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
+              e("span",{style:"color:"+sh.color},sh.label),
+              e("span",{style:"font-weight:700;color:"+(used>=lim?"#EF4444":"#94A3B8")},used+"/"+lim)
+            ]);
+          })
+        ])
+      ]));
+      card.appendChild(quotaCard);
+
+      // Default buttons
+      const defaultKey = "blockDefaults_" + emp.id;
+      const savedDefaults = JSON.parse(localStorage.getItem(defaultKey) || "null");
+      card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"},[
+        savedDefaults ? btn("btn-sm btn-sm-blue","📥 טען ברירת מחדל",()=>{
+          S.availDraft = {};
+          savedDefaults.forEach(def => {
+            targetDates.forEach((date, di) => {
+              const dt = new Date(date+"T00:00:00");
+              if (dt.getDay() === def.day) S.availDraft[di+"|"+def.shift] = true;
+            });
+          });
+          toast("ברירת מחדל נטענה ✓"); render();
+        }) : null,
+        e("div",{style:"font-size:11px;color:#475569;display:flex;align-items:center"},
+          savedDefaults ? "יש ברירת מחדל שמורה" : "אין ברירת מחדל")
+      ]));
+
       card.appendChild(e("div",{style:"font-size:13px;color:#94A3B8;margin-bottom:12px"},"לחץ על משמרות שאתה לא יכול לעבוד:"));
 
+      // Day cards with shift buttons
       targetDates.forEach((date, di) => {
         const dt = new Date(date+"T00:00:00");
         const dayName = DAYS[dt.getDay()];
+        const isWeekend = dt.getDay() === 5 || dt.getDay() === 6;
         const dayCard = e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:10px"});
         dayCard.appendChild(e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"},[
           e("div",{style:"font-weight:800;font-size:15px;color:#E2E8F0"},dayName),
@@ -3732,8 +3794,13 @@ function viewManagerBlocks() {
         SHIFTS.forEach(sh => {
           const key = di+"|"+sh.id;
           const picked = !!S.availDraft[key];
+          const shiftLimit = isWeekend ? (blockLimits.weekend?.[sh.id]??1) : (blockLimits.weekday?.[sh.id]??3);
+          const shiftUsed = getMgrBlockCount(sh.id, isWeekend);
+          const atLimit = !picked && shiftUsed >= shiftLimit;
+
           shiftsRow.appendChild(e("button",{
-            style: picked ? "padding:14px 8px;border-radius:10px;background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;cursor:pointer;font-family:inherit" : "padding:14px 8px;border-radius:10px;background:#1E293B;border:1px solid "+sh.color+"44;color:"+sh.color+";font-weight:700;cursor:pointer;font-family:inherit",
+            disabled: atLimit && !picked,
+            style: picked ? "padding:14px 8px;border-radius:10px;background:#EF444433;border:2px solid #EF4444;color:#EF4444;font-weight:800;cursor:pointer;font-family:inherit" : atLimit ? "padding:14px 8px;border-radius:10px;background:#0F172A;border:1px solid #1E293B;color:#1E293B;cursor:not-allowed;font-family:inherit" : "padding:14px 8px;border-radius:10px;background:#1E293B;border:1px solid "+sh.color+"44;color:"+sh.color+";font-weight:700;cursor:pointer;font-family:inherit",
             onclick: () => { S.availDraft[key]=!S.availDraft[key]; render(); }
           },[
             e("div",{style:"font-size:13px"},picked?"🚫 "+sh.label:sh.label),
@@ -3744,19 +3811,48 @@ function viewManagerBlocks() {
         card.appendChild(dayCard);
       });
 
+      // Reasons
       const selKeys = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
+      if (selKeys.length > 0) {
+        card.appendChild(e("div",{style:"margin-top:14px;border-top:1px solid #334155;padding-top:12px"},[
+          e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:10px"},"💬 סיבות (אופציונלי):")
+        ]));
+        selKeys.forEach(key => {
+          const [di,shId] = key.split("|");
+          const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
+          const sh = SHIFT_BY_ID[shId];
+          card.appendChild(e("div",{style:"margin-bottom:8px"},[
+            e("div",{style:"font-size:12px;font-weight:700;color:"+(sh?.color||"#94A3B8")+";margin-bottom:4px"},DAYS[dt.getDay()]+" "+dt.getDate()+" — "+(sh?.label||"")),
+            e("input",{class:"fi",placeholder:"סיבה (אופציונלי)",value:S.blockReasons?.["reason_"+key]||"",
+              oninput:ev=>{if(!S.blockReasons)S.blockReasons={};S.blockReasons["reason_"+key]=ev.target.value;}})
+          ]));
+        });
+      }
+
+      // Action buttons
       card.appendChild(div("form-actions",[
+        btn("btn-sm btn-sm-blue","💾 שמור כברירת מחדל",()=>{
+          const selKeys2 = Object.entries(S.availDraft).filter(([,v])=>v).map(([k])=>k);
+          if (!selKeys2.length) { toast("בחר לפחות משמרת אחת","err"); return; }
+          const defaults = selKeys2.map(k => {
+            const [di, shId] = k.split("|");
+            const dt = new Date(targetDates[parseInt(di)]+"T00:00:00");
+            return { day: dt.getDay(), shift: shId };
+          });
+          localStorage.setItem(defaultKey, JSON.stringify(defaults));
+          toast("ברירת מחדל נשמרה ✓");
+        }),
         btn("btn-sm btn-sm-red","📤 שלח חסימות",async()=>{
           if (!selKeys.length) { toast("בחר לפחות משמרת אחת","err"); return; }
           const slots = selKeys.map(k=>{
             const [di,shId]=k.split("|");
-            return {day:new Date(targetDates[parseInt(di)]+"T00:00:00").getDay(),shift:shId,date:targetDates[parseInt(di)],reason:""};
+            return {day:new Date(targetDates[parseInt(di)]+"T00:00:00").getDay(),shift:shId,date:targetDates[parseInt(di)],reason:S.blockReasons?.["reason_"+k]||""};
           });
-          await submitAvailability(emp.id, targetStart, slots, "חסימות מנהל");
-          S.availDraft={};
+          await submitAvailability(emp.id, targetStart, slots, "חסימות");
+          S.availDraft={}; S.blockReasons={};
           toast("חסימות נשלחו ✓"); render();
         },{style:"flex:1"}),
-        btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};render();})
+        btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};S.blockReasons={};render();})
       ],{style:"margin-top:12px"}));
 
       wrap.appendChild(card);
