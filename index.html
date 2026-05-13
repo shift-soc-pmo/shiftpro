@@ -273,9 +273,10 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ══════════════════════════════════════════════════════
 const DAYS = ["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
 const SHIFTS = [
-  { id:"morning",   label:"בוקר",   start:"07:00", end:"15:00", color:"#F59E0B" },
-  { id:"afternoon", label:"צהריים", start:"15:00", end:"23:00", color:"#10B981" },
-  { id:"night",     label:"לילה",   start:"23:00", end:"07:00", color:"#6366F1" },
+  { id:"morning",   label:"בוקר",    start:"07:00", end:"15:00", color:"#F59E0B" },
+  { id:"morning2",  label:"בוקר ב׳", start:"09:00", end:"17:00", color:"#F97316" },
+  { id:"afternoon", label:"צהריים",  start:"15:00", end:"23:00", color:"#10B981" },
+  { id:"night",     label:"לילה",    start:"23:00", end:"07:00", color:"#6366F1" },
 ];
 const WEEKEND_SHIFTS = [
   { id:"morning",   label:"בוקר",   start:"07:00", end:"19:00", color:"#F59E0B" },
@@ -312,7 +313,7 @@ let S = {
   newEmp: {name:"",email:"",idNumber:"",phone:"",role:"employee"},
   newVac: {employeeId:"",startDate:"",endDate:"",reason:""},
   availDraft: {}, availTargetOffset: 1,
-  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null, monthOffset: 0, blocksWeekOffset: 0, mgrBlocksTab: "team", mgrSwapsTab: "approve",
+  testAsEmployee: false, blockReasons: {}, schedPublishType: {}, publishedInitial: null, monthOffset: 0, blocksWeekOffset: 0, mgrBlocksTab: "team", mgrSwapsTab: "approve", mgrVacTab: "approve",
   currentPublishType: null, showBlocksModal: false,
   toast: null, modal: null,
   loginMode: "login",
@@ -394,7 +395,7 @@ async function runSmartSchedule() {
     // On weekends (Fri/Sat), skip afternoon shift
     const dayOfWeek = dateObj.getDay();
     const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
-    const dayShiftIds = isWeekend ? shiftIds.filter(s => s !== "afternoon") : shiftIds;
+    const dayShiftIds = isWeekend ? shiftIds.filter(s => s !== "afternoon" && s !== "morning2") : shiftIds;
 
     dayShiftIds.forEach((shiftId, shIdx) => {
       const lockedKey = dateStr+"|"+shiftId;
@@ -403,6 +404,27 @@ async function runSmartSchedule() {
       lockedEmpIds.forEach(id => {
         totalCount[id] = (totalCount[id]||0)+1;
         shiftTypeCount[id][shiftId] = (shiftTypeCount[id][shiftId]||0)+1;
+      });
+
+      // Fixed schedule — assign employees with fixed_shifts FIRST
+      S.employees.forEach(emp => {
+        if (!emp.fixed_shifts) return;
+        const fixedKey = dayOfWeek + "_" + shiftId;
+        if (!emp.fixed_shifts[fixedKey]) return;
+        if (lockedEmpIds.includes(emp.id)) return;
+        if (newSched[dateStr][shiftId].includes(emp.id)) return;
+        // Check exclusions
+        const dateStrLocal2 = dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0");
+        if (emp.exclude_from && emp.exclude_to && dateStrLocal2 >= emp.exclude_from && dateStrLocal2 <= emp.exclude_to) return;
+        const onVac2 = S.vacations.some(v => v.employee_id === emp.id && v.status === "approved" && dateStr >= v.start_date && dateStr <= v.end_date);
+        if (onVac2) return;
+        // Check blocks
+        const isBlocked2 = S.availSubmissions.some(s => s.employee_id === emp.id && (s.slots||[]).some(sl => { if (sl.date && sl.date === dateStrLocal2) return sl.shift === shiftId; return false; }));
+        if (isBlocked2) return;
+        newSched[dateStr][shiftId].push(emp.id);
+        totalCount[emp.id] = (totalCount[emp.id]||0)+1;
+        shiftTypeCount[emp.id][shiftId] = (shiftTypeCount[emp.id][shiftId]||0)+1;
+        if (isWeekend) weekendCount[emp.id] = (weekendCount[emp.id]||0)+1;
       });
 
       // כמה עובדים דרושים לכל משמרת (ניתן להגדיר בהגדרות)
@@ -610,6 +632,7 @@ async function loadAll(user) {
     S.view = "home";
   }
   render();
+  startAutoRefresh();
 }
 
 async function loadEmployees() {
@@ -681,7 +704,7 @@ async function loadSchedule() {
   (assignments||[]).forEach(a => {
     if (!sched_obj[a.date]) sched_obj[a.date] = {};
     if (!sched_obj[a.date][a.shift]) sched_obj[a.date][a.shift] = [];
-    sched_obj[a.date][a.shift].push(a.employee_id);
+    if (!sched_obj[a.date][a.shift].includes(a.employee_id)) sched_obj[a.date][a.shift].push(a.employee_id);
     if (a.custom_start && a.custom_end) {
       S.customHours[a.date+"|"+a.shift+"|"+a.employee_id] = {start:a.custom_start,end:a.custom_end};
     }
@@ -768,7 +791,8 @@ function saveScheduleToDB() {
         
         Object.entries(shifts).forEach(([shift, empIds]) => {
           if (!Array.isArray(empIds)) return;
-          empIds.forEach(empId => {
+          const uniqueEmpIds = [...new Set(empIds)];
+          uniqueEmpIds.forEach(empId => {
             const ch = S.customHours[date+"|"+shift+"|"+empId];
             const noteVal = S.assignmentNotes[date+"|"+shift+"|"+empId];
             rows.push({ schedule_id: sched.id, employee_id: empId, date, shift,
@@ -789,6 +813,7 @@ function saveScheduleToDB() {
       console.error("🚨 שגיאת שמירה:", err);
       toast("שגיאה בשמירה למסד הנתונים: " + (err.message || err.details || ""), "err");
     }
+    silentRefresh();
   }, 800);
 }
 
@@ -878,8 +903,8 @@ function toggleCellEmp(date, shift, empId) {
   const idx = arr.indexOf(empId);
 
   if (idx >= 0) {
-    // Removing — always allowed
-    arr.splice(idx,1);
+    // Removing — remove ALL occurrences
+    S.schedule[date][shift] = arr.filter(id => id !== empId);
   } else {
     // Adding — check constraints
     const conflict = checkShiftConflict(date, shift, empId);
@@ -923,6 +948,7 @@ async function publishWeek(type) {
   S.showPublishModal = false;
   toast(isFinal ? "סידור סופי פורסם 📢" : "סידור ראשוני פורסם 📋");
   render();
+  silentRefresh();
 
   // Send email to each employee
   for (const emp of S.employees) {
@@ -961,6 +987,7 @@ async function addEmployee() {
   S.newEmp = {name:"",email:"",idNumber:"",phone:"",role:"employee"};
   S.showAddEmp = false;
   toast("עובד נוסף ✓"); render();
+  silentRefresh();
 }
 
 async function deleteEmployee(id) {
@@ -980,6 +1007,7 @@ async function saveConstraints(empId, data) {
     exclude_from: data.excludeFrom || null,
     exclude_to: data.excludeTo || null,
     exclude_reason: data.excludeReason || null,
+    fixed_shifts: data.fixedShifts || null,
   };
   console.log("💾 Saving constraints for", empId, updateData);
   const {error} = await sb.from("profiles").update(updateData).eq("id", empId);
@@ -994,6 +1022,7 @@ async function saveConstraints(empId, data) {
   console.log("💾 Saved employee data:", saved?.active_days, saved?.allowed_shifts);
   S.constraintsEmp = null;
   toast("הגבלות נשמרו ✓"); render();
+  silentRefresh();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1049,6 +1078,7 @@ async function addVacation() {
   S.newVac = { type: "vacation", startDate: "", endDate: "", reason: "" };
   await loadVacations();
   render();
+  silentRefresh();
 }
 
 async function deleteVacRequest(id) {
@@ -1064,6 +1094,7 @@ async function updateVacStatus(id, status) {
   await sb.from("vacations").update({status, approved_by: S.user.id}).eq("id",id);
   await loadVacations();
   toast(status==="approved"?"חופשה אושרה ✓":"חופשה נדחתה"); render();
+  silentRefresh();
 
   // Send email to employee
   const vac = S.vacations.find(v=>v.id===id);
@@ -1116,6 +1147,7 @@ async function submitAvailability(empId, weekStart, slots, note) {
     week_start: weekStart, slots, note: note||null
   }, {onConflict:"employee_id,week_start"});
   toast("זמינות נשלחה ✓");
+  silentRefresh();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1460,7 +1492,7 @@ function viewSchedule() {
       const dayNum = new Date(date+"T00:00:00").getDay();
       const isWeekendDay = dayNum === 5 || dayNum === 6;
       // On Fri/Sat skip afternoon
-      if (isWeekendDay && shift.id === "afternoon") {
+      if (isWeekendDay && (shift.id === "afternoon" || shift.id === "morning2")) {
         row.appendChild(e("td",{style:"background:#0F172A44;cursor:default"},[
           e("div",{style:"font-size:9px;color:#334155;text-align:center;padding:10px 0"},"—")
         ]));
@@ -1793,11 +1825,29 @@ function viewEmployees() {
 // ── VACATIONS ──
 function viewVacations() {
   const wrap = e("div");
-  wrap.appendChild(div("page-title",["🌴 ניהול העדרויות"],{style:"margin-bottom:16px"}));
+  wrap.appendChild(div("page-title",["🌴 העדרויות"],{style:"margin-bottom:16px"}));
 
   const icons = { vacation: "🌴", reserve: "🎖️", exam: "📝" };
   const names = { vacation: "חופשה", reserve: "מילואים", exam: "מבחן" };
   const colors = { vacation: "#10B981", reserve: "#6366F1", exam: "#F59E0B" };
+
+  // Manager tabs
+  if (!S.mgrVacTab) S.mgrVacTab = "approve";
+  const vacTabRow = e("div",{style:"display:flex;gap:6px;margin-bottom:14px"});
+  [{id:"mine",label:"🌴 ההעדרויות שלי"},{id:"approve",label:"👥 אישור בקשות"}].forEach(t=>{
+    const isActive = S.mgrVacTab===t.id;
+    vacTabRow.appendChild(e("button",{
+      style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(isActive?"#3B82F6":"#334155")+";background:"+(isActive?"#3B82F622":"#1E293B")+";color:"+(isActive?"#60A5FA":"#64748B")+";font-family:inherit;font-weight:700;font-size:13px",
+      onclick:()=>{S.mgrVacTab=t.id;render();}
+    },t.label));
+  });
+  wrap.appendChild(vacTabRow);
+
+  // Manager personal vacations
+  if (S.mgrVacTab === "mine") {
+    wrap.appendChild(viewEmpVacations());
+    return wrap;
+  }
 
   // ── בקשות ממתינות לאישור ──
   const pending = S.vacations.filter(v => v.status === "pending");
@@ -1955,6 +2005,7 @@ async function processManagerDecision(swap, isApproved) {
   toast(isApproved ? "✓ אושר ועודכן בסידור" : "נדחה");
   await loadSwapRequests();
   render();
+  silentRefresh();
 }
 
 // ── אישור/דחייה של העובד השני (Peer) ──
@@ -1998,6 +2049,7 @@ async function processPeerDecision(swap, isApproved) {
   
   await loadSwapRequests();
   render();
+  silentRefresh();
 }
 
 function viewSwaps(forceEmployee) {
@@ -2168,7 +2220,9 @@ function viewSwaps(forceEmployee) {
 
     const myFutureShifts = [];
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
-      SHIFTS.forEach(sh=>{
+      const mfDt = new Date(date+"T00:00:00");
+      const mfIsWeekend = mfDt.getDay() === 5 || mfDt.getDay() === 6;
+      SHIFTS.filter(sh => !(mfIsWeekend && (sh.id === "afternoon" || sh.id === "morning2"))).forEach(sh=>{
         if((S.schedule[date]?.[sh.id]||[]).includes(myEmpId)){
           myFutureShifts.push({date,shift:sh});
         }
@@ -2282,7 +2336,9 @@ function viewSwaps(forceEmployee) {
 
     const myHandoverShifts = [];
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
-      SHIFTS.forEach(sh=>{
+      const hoDt = new Date(date+"T00:00:00");
+      const hoIsWeekend = hoDt.getDay() === 5 || hoDt.getDay() === 6;
+      SHIFTS.filter(sh => !(hoIsWeekend && (sh.id === "afternoon" || sh.id === "morning2"))).forEach(sh=>{
         if((S.schedule[date]?.[sh.id]||[]).includes(myEmpId)){
           myHandoverShifts.push({date,shift:sh});
         }
@@ -2377,7 +2433,9 @@ function viewSwaps(forceEmployee) {
 
     const availableShifts = [];
     Object.keys(S.schedule).filter(d=>d>=todayStr).sort().forEach(date=>{
-      SHIFTS.forEach(sh=>{
+      const joinDt = new Date(date+"T00:00:00");
+      const joinIsWeekend = joinDt.getDay() === 5 || joinDt.getDay() === 6;
+      SHIFTS.filter(sh => !(joinIsWeekend && (sh.id === "afternoon" || sh.id === "morning2"))).forEach(sh=>{
         const empIds = S.schedule[date]?.[sh.id]||[];
         if(!empIds.includes(myEmpId)){
             if (checkShiftConflict(date, sh.id, myEmpId)) return;
@@ -2672,7 +2730,7 @@ function viewEmpView() {
       row.appendChild(e("td",{style:"font-weight:700;font-size:11px;color:"+sh.color},sh.label));
       wd.forEach(date => {
         const dayNum2 = new Date(date+"T00:00:00").getDay();
-        if ((dayNum2 === 5 || dayNum2 === 6) && sh.id === "afternoon") {
+        if ((dayNum2 === 5 || dayNum2 === 6) && (sh.id === "afternoon" || sh.id === "morning2")) {
           row.appendChild(e("td",{style:"background:#0F172A44"},[e("div",{style:"font-size:9px;color:#334155"},"—")]));
           return;
         }
@@ -2767,7 +2825,7 @@ function viewEmpView() {
       ]),
       e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
         e("div",{style:"font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px"},"שישי — שבת"),
-        ...SHIFTS.filter(sh=>sh.id!=="afternoon").map(sh=>{
+        ...SHIFTS.filter(sh=>sh.id!=="afternoon" && sh.id!=="morning2").map(sh=>{
           const lim = blockLimits.weekend?.[sh.id]??1;
           const used = getBlockCount(sh.id, true);
           return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
@@ -2820,7 +2878,7 @@ function viewEmpView() {
 
         const shiftsRow = e("div",{style:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
         const isWeekendDay = dt.getDay() === 5 || dt.getDay() === 6;
-        SHIFTS.filter(sh => !(isWeekendDay && sh.id === "afternoon")).forEach(sh => {
+        SHIFTS.filter(sh => !(isWeekendDay && (sh.id === "afternoon" || sh.id === "morning2"))).forEach(sh => {
           const key = di+"|"+sh.id;
           const canBlock = dayAllowed.includes(sh.id);
           const picked = !!S.availDraft[key];
@@ -2970,6 +3028,7 @@ function viewConstraintsModal() {
   let localPref = [...(emp.preferred_shifts||[])];
   let localActiveDays = [...(emp.active_days || [0,1,2,3,4,5,6])]; // 0=Sun..6=Sat
   let localWorkShifts = [...(emp.allowed_shifts || SHIFTS.map(s=>s.id))];
+  let localFixedShifts = JSON.parse(JSON.stringify(emp.fixed_shifts || {}));
   let localExcludeFrom = emp.exclude_from || null;
   let localExcludeTo = emp.exclude_to || null;
   let localExcludeReason = emp.exclude_reason || "";
@@ -3045,6 +3104,64 @@ function viewConstraintsModal() {
     shiftsCard.appendChild(shiftsGrid);
     modal.appendChild(shiftsCard);
 
+    // ── Fixed schedule ──
+    const fixedCard = div("card",[
+      e("div",{class:"form-label",style:"margin-bottom:10px"},"📌 שיבוץ קבוע"),
+      e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"העובד ישובץ אוטומטית בימים ובמשמרות שתבחר — תמיד, בכל שבוע")
+    ],{style:"margin-bottom:12px"});
+    if (!localFixedShifts) localFixedShifts = {};
+    const fixedGrid = e("div",{style:"display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:4px;align-items:center"});
+    // Header
+    fixedGrid.appendChild(e("div",{style:"font-size:11px;color:#64748B;font-weight:700"},""));
+    SHIFTS.forEach(sh => fixedGrid.appendChild(e("div",{style:"text-align:center;font-size:11px;font-weight:700;color:"+sh.color},sh.label)));
+    // Days
+    DAYS.slice(0,5).forEach((dayName, dayIdx) => {
+      fixedGrid.appendChild(e("div",{style:"font-size:12px;font-weight:700;color:#E2E8F0;padding:4px 0"},dayName));
+      SHIFTS.forEach(sh => {
+        const key = dayIdx + "_" + sh.id;
+        const isFixed = !!localFixedShifts[key];
+        fixedGrid.appendChild(e("div",{style:"text-align:center"},[
+          e("button",{
+            style:"width:36px;height:30px;border-radius:8px;border:1px solid "+(isFixed?"#10B981":"#334155")+";background:"+(isFixed?"#10B98133":"#0F172A")+";color:"+(isFixed?"#10B981":"#334155")+";font-weight:800;font-size:13px;cursor:pointer;font-family:inherit",
+            onclick:()=>{
+              if(isFixed) delete localFixedShifts[key];
+              else localFixedShifts[key] = true;
+              rebuildModal();
+            }
+          },isFixed?"✓":"")
+        ]));
+      });
+    });
+    // Weekend days
+    DAYS.slice(5).forEach((dayName, i) => {
+      const dayIdx = i + 5;
+      fixedGrid.appendChild(e("div",{style:"font-size:12px;font-weight:700;color:#A855F7;padding:4px 0"},dayName));
+      SHIFTS.forEach(sh => {
+        if (sh.id === "afternoon") {
+          fixedGrid.appendChild(e("div",{style:"text-align:center;font-size:9px;color:#334155"},"—"));
+          return;
+        }
+        const key = dayIdx + "_" + sh.id;
+        const isFixed = !!localFixedShifts[key];
+        fixedGrid.appendChild(e("div",{style:"text-align:center"},[
+          e("button",{
+            style:"width:36px;height:30px;border-radius:8px;border:1px solid "+(isFixed?"#10B981":"#334155")+";background:"+(isFixed?"#10B98133":"#0F172A")+";color:"+(isFixed?"#10B981":"#334155")+";font-weight:800;font-size:13px;cursor:pointer;font-family:inherit",
+            onclick:()=>{
+              if(isFixed) delete localFixedShifts[key];
+              else localFixedShifts[key] = true;
+              rebuildModal();
+            }
+          },isFixed?"✓":"")
+        ]));
+      });
+    });
+    fixedCard.appendChild(fixedGrid);
+    const fixedCount = Object.values(localFixedShifts).filter(Boolean).length;
+    if (fixedCount > 0) {
+      fixedCard.appendChild(e("div",{style:"margin-top:8px;font-size:11px;color:#10B981;font-weight:700"},"📌 "+fixedCount+" משמרות קבועות הוגדרו"));
+    }
+    modal.appendChild(fixedCard);
+
     // ── Temporary exclusion ──
     const exCard = div("card",[
       e("div",{class:"form-label",style:"margin-bottom:10px"},"🚑 השעיה זמנית מהסידור"),
@@ -3089,7 +3206,7 @@ function viewConstraintsModal() {
 
     // Weekend limits (Fri-Sat) — only morning + night (no afternoon)
     limCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#A855F7;margin-bottom:8px"},"שישי — שבת"));
-    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:8px"},SHIFTS.filter(sh=>sh.id!=="afternoon").map(sh => 
+    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:8px"},SHIFTS.filter(sh=>sh.id!=="afternoon" && sh.id!=="morning2").map(sh => 
       div("form-col",[
         e("label",{style:"font-size:11px;font-weight:700;color:"+sh.color},sh.label),
         e("input",{class:"fi",type:"number",min:0,max:2,value:localBlockLimits.weekend?.[sh.id]??1,style:"text-align:center",
@@ -3104,7 +3221,7 @@ function viewConstraintsModal() {
     // Actions
     modal.appendChild(div("form-actions",[
       btn("btn-add","שמור הגבלות",async()=>{
-        await saveConstraints(emp.id,{maxShifts:localMax,blockLimits:localBlockLimits,activeDays:localActiveDays,allowedShifts:localWorkShifts,excludeFrom:localExcludeFrom,excludeTo:localExcludeTo,excludeReason:localExcludeReason});
+        await saveConstraints(emp.id,{maxShifts:localMax,blockLimits:localBlockLimits,activeDays:localActiveDays,allowedShifts:localWorkShifts,excludeFrom:localExcludeFrom,excludeTo:localExcludeTo,excludeReason:localExcludeReason,fixedShifts:localFixedShifts});
       },{style:"flex:1"}),
       btn("btn-sm btn-sm-gray","ביטול",()=>{S.constraintsEmp=null;render();})
     ]));
@@ -3271,6 +3388,7 @@ function viewSettings() {
   const shiftCard = div("card",[e("div",{class:"card-title"},"🕐 שעות משמרות")]);
   const shiftDefs = [
     {id:"morning",label:"בוקר",sk:"morning"},
+    {id:"morning2",label:"בוקר ב׳",sk:"morning2"},
     {id:"afternoon",label:"צהריים",sk:"afternoon"},
     {id:"night",label:"לילה",sk:"night"},
   ];
@@ -3284,13 +3402,43 @@ function viewSettings() {
     ]));
   });
   shiftCard.appendChild(btn("btn-add","שמור שעות",()=>{
-    // Validate hours before saving
     if(sd.morningStart && sd.morningEnd) { SHIFTS[0].start=sd.morningStart; SHIFTS[0].end=sd.morningEnd; }
     if(sd.afternoonStart && sd.afternoonEnd) { SHIFTS[1].start=sd.afternoonStart; SHIFTS[1].end=sd.afternoonEnd; }
     if(sd.nightStart && sd.nightEnd) { SHIFTS[2].start=sd.nightStart; SHIFTS[2].end=sd.nightEnd; }
+    if(sd.weMorningStart && sd.weMorningEnd) { WEEKEND_SHIFTS[0].start=sd.weMorningStart; WEEKEND_SHIFTS[0].end=sd.weMorningEnd; }
+    if(sd.weNightStart && sd.weNightEnd) { WEEKEND_SHIFTS[1].start=sd.weNightStart; WEEKEND_SHIFTS[1].end=sd.weNightEnd; }
     toast("שעות עודכנו ✓");render();
   }));
   wrap.appendChild(shiftCard);
+
+  // Weekend shift hours
+  const weCard = div("card",[e("div",{class:"card-title"},"🕐 שעות שישי — שבת")]);
+  weCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},"בסופ״ש יש רק 2 משמרות: בוקר ולילה"));
+  if(!sd.weMorningStart) sd.weMorningStart = WEEKEND_SHIFTS[0].start;
+  if(!sd.weMorningEnd) sd.weMorningEnd = WEEKEND_SHIFTS[0].end;
+  if(!sd.weNightStart) sd.weNightStart = WEEKEND_SHIFTS[1].start;
+  if(!sd.weNightEnd) sd.weNightEnd = WEEKEND_SHIFTS[1].end;
+
+  weCard.appendChild(e("div",{style:"margin-bottom:12px"},[
+    e("div",{style:"font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:6px"},"בוקר"),
+    div("form-row",[
+      div("form-col",[e("label",{class:"form-label"},"התחלה"),e("input",{class:"fi",type:"time",value:sd.weMorningStart,onchange:ev=>{sd.weMorningStart=ev.target.value}})]),
+      div("form-col",[e("label",{class:"form-label"},"סיום"),e("input",{class:"fi",type:"time",value:sd.weMorningEnd,onchange:ev=>{sd.weMorningEnd=ev.target.value}})])
+    ])
+  ]));
+  weCard.appendChild(e("div",{style:"margin-bottom:12px"},[
+    e("div",{style:"font-weight:700;font-size:13px;color:#6366F1;margin-bottom:6px"},"לילה"),
+    div("form-row",[
+      div("form-col",[e("label",{class:"form-label"},"התחלה"),e("input",{class:"fi",type:"time",value:sd.weNightStart,onchange:ev=>{sd.weNightStart=ev.target.value}})]),
+      div("form-col",[e("label",{class:"form-label"},"סיום"),e("input",{class:"fi",type:"time",value:sd.weNightEnd,onchange:ev=>{sd.weNightEnd=ev.target.value}})])
+    ])
+  ]));
+  weCard.appendChild(btn("btn-add","שמור שעות סופ״ש",()=>{
+    if(sd.weMorningStart && sd.weMorningEnd) { WEEKEND_SHIFTS[0].start=sd.weMorningStart; WEEKEND_SHIFTS[0].end=sd.weMorningEnd; }
+    if(sd.weNightStart && sd.weNightEnd) { WEEKEND_SHIFTS[1].start=sd.weNightStart; WEEKEND_SHIFTS[1].end=sd.weNightEnd; }
+    toast("שעות סופ״ש עודכנו ✓");render();
+  }));
+  wrap.appendChild(weCard);
 
   // Deadline
   const dlCard = div("card",[e("div",{class:"card-title"},"⏰ דדליין להגשת חסימות")]);
@@ -3767,7 +3915,7 @@ function viewManagerBlocks() {
         ]),
         e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
           e("div",{style:"font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px"},"שישי — שבת"),
-          ...SHIFTS.filter(sh=>sh.id!=="afternoon").map(sh=>{
+          ...SHIFTS.filter(sh=>sh.id!=="afternoon" && sh.id!=="morning2").map(sh=>{
             const lim = blockLimits.weekend?.[sh.id]??1;
             const used = getMgrBlockCount(sh.id, true);
             return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
@@ -3810,7 +3958,7 @@ function viewManagerBlocks() {
           e("div",{style:"font-size:13px;color:#64748B"},dt.getDate()+"/"+(dt.getMonth()+1))
         ]));
         const shiftsRow = e("div",{style:"display:grid;grid-template-columns:"+(isWeekend?"1fr 1fr":"1fr 1fr 1fr")+";gap:6px"});
-        SHIFTS.filter(sh => !(isWeekend && sh.id === "afternoon")).forEach(sh => {
+        SHIFTS.filter(sh => !(isWeekend && (sh.id === "afternoon" || sh.id === "morning2"))).forEach(sh => {
           const key = di+"|"+sh.id;
           const picked = !!S.availDraft[key];
           const shiftLimit = isWeekend ? (blockLimits.weekend?.[sh.id]??1) : (blockLimits.weekday?.[sh.id]??3);
@@ -4045,6 +4193,28 @@ window.addEventListener("beforeinstallprompt", (e) => {
 // Service worker registration
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
+
+// SILENT REFRESH — reload data after actions + every 30 seconds
+let _autoRefreshTimer = null;
+let _refreshDebounce = null;
+
+function silentRefresh() {
+  clearTimeout(_refreshDebounce);
+  _refreshDebounce = setTimeout(async () => {
+    if (!S.user || S.view === "login" || S.view === "loading") return;
+    try {
+      await Promise.all([loadSchedule(), loadAvailSubmissions(), loadSwapRequests(), loadVacations(), loadEmployees()]);
+      render();
+    } catch(err) {
+      console.warn("🔄 Refresh failed:", err);
+    }
+  }, 1500);
+}
+
+function startAutoRefresh() {
+  if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
+  _autoRefreshTimer = setInterval(silentRefresh, 30000);
 }
 
 // INIT
