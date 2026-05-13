@@ -1802,7 +1802,7 @@ function viewEmployees() {
   }
 
   // Availability submissions
-  const subs = S.availSubmissions;
+  const subs = S.availSubmissions.filter(s => getEmp(s.employee_id));
   if (subs.length > 0) {
     const subCard = div("card",[
       e("div",{style:"font-weight:700;font-size:14px;color:#F59E0B;margin-bottom:10px"},`📋 הגשות זמינות (${subs.length})`)
@@ -1857,7 +1857,7 @@ function viewVacations() {
   }
 
   // ── בקשות ממתינות לאישור ──
-  const pending = S.vacations.filter(v => v.status === "pending");
+  const pending = S.vacations.filter(v => v.status === "pending" && getEmp(v.employee_id));
   if (pending.length > 0) {
     const pCard = div("card",[
       e("div",{style:"font-weight:800;font-size:15px;color:#F59E0B;margin-bottom:14px"},`⏳ ממתינות לאישור (${pending.length})`)
@@ -1894,7 +1894,7 @@ function viewVacations() {
   }
 
   // ── ייצוא חופשות מאושרות ──
-  const approved = S.vacations.filter(v => v.status === "approved");
+  const approved = S.vacations.filter(v => v.status === "approved" && getEmp(v.employee_id));
   if (approved.length > 0) {
     wrap.appendChild(div("form-actions",[
       btn("btn-green","📤 ייצוא CSV",()=>{
@@ -1928,7 +1928,7 @@ function viewVacations() {
   }
 
   // ── היסטוריה ──
-  const history = S.vacations.filter(v => v.status !== "pending");
+  const history = S.vacations.filter(v => v.status !== "pending" && getEmp(v.employee_id));
   if (history.length > 0) {
     const hCard = div("card",[
       e("div",{style:"font-weight:700;font-size:14px;color:#94A3B8;margin-bottom:14px"},"📜 היסטוריה")
@@ -2097,7 +2097,7 @@ function viewSwaps(forceEmployee) {
     }
 
     // Approval tab (existing code continues)
-    const pending = S.swaps.filter(s => s.status === "pending_manager" || s.status === "pending_approval");
+    const pending = S.swaps.filter(s => (s.status === "pending_manager" || s.status === "pending_approval") && (getEmp(s.taker_id) || getEmp(s.giver_id)));
 
     if (pending.length === 0) {
       wrap.appendChild(div("card", [
@@ -2158,7 +2158,7 @@ function viewSwaps(forceEmployee) {
       wrap.appendChild(mCard);
     }
 
-    const done = S.swaps.filter(s=>s.status==="approved"||s.status==="rejected").slice(0,5);
+    const done = S.swaps.filter(s=>(s.status==="approved"||s.status==="rejected") && (getEmp(s.taker_id)||getEmp(s.giver_id))).slice(0,5);
     if (done.length > 0) {
       const hCard = div("card",[e("div",{style:"font-weight:700;font-size:13px;color:#64748B;margin-bottom:10px"},"היסטוריה אחרונה")]);
       done.forEach(s=>{
@@ -2175,7 +2175,7 @@ function viewSwaps(forceEmployee) {
   }
 
   // ══ עובד: בקשות הממתינות לאישור שלי (Peer) ══
-  const incomingReqs = S.swaps.filter(s => s.status === "pending_peer" && s.taker_id === myEmpId);
+  const incomingReqs = S.swaps.filter(s => s.status === "pending_peer" && s.taker_id === myEmpId && getEmp(s.giver_id));
   if (incomingReqs.length > 0) {
     const incCard = div("card", [
       e("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:14px"},[
@@ -3117,52 +3117,40 @@ function viewConstraintsModal() {
       e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"העובד ישובץ אוטומטית בימים ובמשמרות שתבחר — תמיד, בכל שבוע")
     ],{style:"margin-bottom:12px"});
     if (!localFixedShifts) localFixedShifts = {};
-    const fixedGrid = e("div",{style:"display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:4px;align-items:center"});
-    // Header
-    fixedGrid.appendChild(e("div",{style:"font-size:11px;color:#64748B;font-weight:700"},""));
-    SHIFTS.forEach(sh => fixedGrid.appendChild(e("div",{style:"text-align:center;font-size:11px;font-weight:700;color:"+sh.color},sh.label)));
-    // Days
-    DAYS.slice(0,5).forEach((dayName, dayIdx) => {
-      fixedGrid.appendChild(e("div",{style:"font-size:12px;font-weight:700;color:#E2E8F0;padding:4px 0"},dayName));
-      SHIFTS.forEach(sh => {
+    // Day-by-day cards layout (mobile friendly)
+    const FIXED_SHIFTS = [
+      { id:"morning", label:"בוקר", color:"#F59E0B" },
+      { id:"afternoon", label:"צהריים", color:"#10B981" },
+      { id:"night", label:"לילה", color:"#6366F1" },
+    ];
+    DAYS.forEach((dayName, dayIdx) => {
+      const isWE = dayIdx >= 5;
+      const dayShifts = isWE ? FIXED_SHIFTS.filter(sh=>sh.id!=="afternoon") : FIXED_SHIFTS;
+      const dayRow = e("div",{style:"background:#0F172A;border:1px solid #334155;border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between"});
+      dayRow.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:"+(isWE?"#A855F7":"#E2E8F0")+";min-width:50px"},dayName));
+      const btnsWrap = e("div",{style:"display:flex;gap:6px;flex-wrap:wrap"});
+      dayShifts.forEach(sh => {
+        // "morning" button controls both morning and morning2
         const key = dayIdx + "_" + sh.id;
-        const isFixed = !!localFixedShifts[key];
-        fixedGrid.appendChild(e("div",{style:"text-align:center"},[
-          e("button",{
-            style:"width:36px;height:30px;border-radius:8px;border:1px solid "+(isFixed?"#10B981":"#334155")+";background:"+(isFixed?"#10B98133":"#0F172A")+";color:"+(isFixed?"#10B981":"#334155")+";font-weight:800;font-size:13px;cursor:pointer;font-family:inherit",
-            onclick:()=>{
-              if(isFixed) delete localFixedShifts[key];
-              else localFixedShifts[key] = true;
-              rebuildModal();
+        const key2 = sh.id === "morning" ? dayIdx + "_morning2" : null;
+        const isFixed = !!localFixedShifts[key] || (key2 && !!localFixedShifts[key2]);
+        btnsWrap.appendChild(e("button",{
+          style:"padding:8px 14px;border-radius:8px;border:1px solid "+(isFixed?sh.color:sh.color+"33")+";background:"+(isFixed?sh.color+"22":"#1E293B")+";color:"+(isFixed?sh.color:"#475569")+";font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap",
+          onclick:()=>{
+            if(isFixed) {
+              delete localFixedShifts[key];
+              if(key2) delete localFixedShifts[key2];
+            } else {
+              localFixedShifts[key] = true;
+              if(key2) localFixedShifts[key2] = true;
             }
-          },isFixed?"✓":"")
-        ]));
+            rebuildModal();
+          }
+        },(isFixed?"✓ ":"")+sh.label));
       });
+      dayRow.appendChild(btnsWrap);
+      fixedCard.appendChild(dayRow);
     });
-    // Weekend days
-    DAYS.slice(5).forEach((dayName, i) => {
-      const dayIdx = i + 5;
-      fixedGrid.appendChild(e("div",{style:"font-size:12px;font-weight:700;color:#A855F7;padding:4px 0"},dayName));
-      SHIFTS.forEach(sh => {
-        if (sh.id === "afternoon") {
-          fixedGrid.appendChild(e("div",{style:"text-align:center;font-size:9px;color:#334155"},"—"));
-          return;
-        }
-        const key = dayIdx + "_" + sh.id;
-        const isFixed = !!localFixedShifts[key];
-        fixedGrid.appendChild(e("div",{style:"text-align:center"},[
-          e("button",{
-            style:"width:36px;height:30px;border-radius:8px;border:1px solid "+(isFixed?"#10B981":"#334155")+";background:"+(isFixed?"#10B98133":"#0F172A")+";color:"+(isFixed?"#10B981":"#334155")+";font-weight:800;font-size:13px;cursor:pointer;font-family:inherit",
-            onclick:()=>{
-              if(isFixed) delete localFixedShifts[key];
-              else localFixedShifts[key] = true;
-              rebuildModal();
-            }
-          },isFixed?"✓":"")
-        ]));
-      });
-    });
-    fixedCard.appendChild(fixedGrid);
     const fixedCount = Object.values(localFixedShifts).filter(Boolean).length;
     if (fixedCount > 0) {
       fixedCard.appendChild(e("div",{style:"margin-top:8px;font-size:11px;color:#10B981;font-weight:700"},"📌 "+fixedCount+" משמרות קבועות הוגדרו"));
@@ -4047,7 +4035,7 @@ function viewManagerBlocks() {
   const allSubs = S.availSubmissions || [];
 
   // Filter by selected week
-  const weekSubs = allSubs.filter(sub => sub.week_start === viewWeekStart);
+  const weekSubs = allSubs.filter(sub => sub.week_start === viewWeekStart && getEmp(sub.employee_id));
 
   if (weekSubs.length === 0) {
     wrap.appendChild(div("card", [
