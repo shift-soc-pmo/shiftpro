@@ -278,6 +278,11 @@ const SHIFTS = [
   { id:"afternoon", label:"צהריים",  start:"15:00", end:"23:00", color:"#10B981" },
   { id:"night",     label:"לילה",    start:"23:00", end:"07:00", color:"#6366F1" },
 ];
+const BLOCK_SHIFTS = [
+  { id:"morning",   label:"בוקר",   start:"07:00", end:"17:00", color:"#F59E0B" },
+  { id:"afternoon", label:"צהריים", start:"15:00", end:"23:00", color:"#10B981" },
+  { id:"night",     label:"לילה",   start:"23:00", end:"07:00", color:"#6366F1" },
+];
 const WEEKEND_SHIFTS = [
   { id:"morning",   label:"בוקר",   start:"07:00", end:"19:00", color:"#F59E0B" },
   { id:"night",     label:"לילה",   start:"19:00", end:"07:00", color:"#6366F1" },
@@ -488,14 +493,16 @@ async function runSmartSchedule() {
 
           // Block submissions — if employee blocked this shift, skip them
           const dateStr2 = dateObj.toISOString ? (dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0")) : dateStr;
+          const blockedShiftId = (shiftId === "morning2") ? "morning" : shiftId;
           const isBlocked = S.availSubmissions.some(s =>
             s.employee_id === emp.id &&
             (s.slots||[]).some(sl => {
+              const slShift = sl.shift;
               // Match by exact date first
-              if (sl.date && sl.date === dateStr2) return sl.shift === shiftId;
+              if (sl.date && sl.date === dateStr2) return slShift === blockedShiftId || slShift === shiftId;
               // Fallback: match by day of week + same week
               if (s.week_start === weekDates[0].toISOString?.().split("T")[0] || s.week_start === getWeekDates(S.weekOffset)[0]) {
-                return sl.shift === shiftId && sl.day === dateObj.getDay();
+                return (slShift === blockedShiftId || slShift === shiftId) && sl.day === dateObj.getDay();
               }
               return false;
             })
@@ -2814,7 +2821,7 @@ function viewEmpView() {
     quotaCard.appendChild(e("div",{style:"display:grid;grid-template-columns:1fr 1fr;gap:8px"},[
       e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
         e("div",{style:"font-size:11px;color:#3B82F6;font-weight:700;margin-bottom:6px"},"ראשון — חמישי"),
-        ...SHIFTS.map(sh=>{
+        ...BLOCK_SHIFTS.map(sh=>{
           const lim = blockLimits.weekday?.[sh.id]??3;
           const used = getBlockCount(sh.id, false);
           return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
@@ -2825,7 +2832,7 @@ function viewEmpView() {
       ]),
       e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
         e("div",{style:"font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px"},"שישי — שבת"),
-        ...SHIFTS.filter(sh=>sh.id!=="afternoon" && sh.id!=="morning2").map(sh=>{
+        ...BLOCK_SHIFTS.filter(sh=>sh.id!=="afternoon").map(sh=>{
           const lim = blockLimits.weekend?.[sh.id]??1;
           const used = getBlockCount(sh.id, true);
           return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
@@ -2878,7 +2885,7 @@ function viewEmpView() {
 
         const shiftsRow = e("div",{style:"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px"});
         const isWeekendDay = dt.getDay() === 5 || dt.getDay() === 6;
-        SHIFTS.filter(sh => !(isWeekendDay && (sh.id === "afternoon" || sh.id === "morning2"))).forEach(sh => {
+        (isWeekendDay ? BLOCK_SHIFTS.filter(sh=>sh.id!=="afternoon") : BLOCK_SHIFTS).forEach(sh => {
           const key = di+"|"+sh.id;
           const canBlock = dayAllowed.includes(sh.id);
           const picked = !!S.availDraft[key];
@@ -3196,7 +3203,7 @@ function viewConstraintsModal() {
 
     // Weekday limits (Sun-Thu)
     limCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#3B82F6;margin-bottom:8px"},"ראשון — חמישי"));
-    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:14px"},SHIFTS.map(sh => 
+    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:14px"},BLOCK_SHIFTS.map(sh => 
       div("form-col",[
         e("label",{style:"font-size:11px;font-weight:700;color:"+sh.color},sh.label),
         e("input",{class:"fi",type:"number",min:0,max:5,value:localBlockLimits.weekday?.[sh.id]??3,style:"text-align:center",
@@ -3206,7 +3213,7 @@ function viewConstraintsModal() {
 
     // Weekend limits (Fri-Sat) — only morning + night (no afternoon)
     limCard.appendChild(e("div",{style:"font-weight:700;font-size:13px;color:#A855F7;margin-bottom:8px"},"שישי — שבת"));
-    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:8px"},SHIFTS.filter(sh=>sh.id!=="afternoon" && sh.id!=="morning2").map(sh => 
+    limCard.appendChild(e("div",{style:"display:flex;gap:10px;margin-bottom:8px"},BLOCK_SHIFTS.filter(sh=>sh.id!=="afternoon").map(sh => 
       div("form-col",[
         e("label",{style:"font-size:11px;font-weight:700;color:"+sh.color},sh.label),
         e("input",{class:"fi",type:"number",min:0,max:2,value:localBlockLimits.weekend?.[sh.id]??1,style:"text-align:center",
@@ -3904,7 +3911,7 @@ function viewManagerBlocks() {
       quotaCard2.appendChild(e("div",{style:"display:grid;grid-template-columns:1fr 1fr;gap:8px"},[
         e("div",{style:"background:#0F172A;border-radius:8px;padding:8px"},[
           e("div",{style:"font-size:11px;color:#3B82F6;font-weight:700;margin-bottom:6px"},"ראשון — חמישי"),
-          ...SHIFTS.map(sh=>{
+          ...BLOCK_SHIFTS.map(sh=>{
             const lim = blockLimits.weekday?.[sh.id]??3;
             const used = getMgrBlockCount(sh.id, false);
             return e("div",{style:"display:flex;justify-content:space-between;font-size:11px;padding:2px 0"},[
@@ -3958,7 +3965,7 @@ function viewManagerBlocks() {
           e("div",{style:"font-size:13px;color:#64748B"},dt.getDate()+"/"+(dt.getMonth()+1))
         ]));
         const shiftsRow = e("div",{style:"display:grid;grid-template-columns:"+(isWeekend?"1fr 1fr":"1fr 1fr 1fr")+";gap:6px"});
-        SHIFTS.filter(sh => !(isWeekend && (sh.id === "afternoon" || sh.id === "morning2"))).forEach(sh => {
+        (isWeekend ? BLOCK_SHIFTS.filter(sh=>sh.id!=="afternoon") : BLOCK_SHIFTS).forEach(sh => {
           const key = di+"|"+sh.id;
           const picked = !!S.availDraft[key];
           const shiftLimit = isWeekend ? (blockLimits.weekend?.[sh.id]??1) : (blockLimits.weekday?.[sh.id]??3);
