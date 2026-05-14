@@ -524,10 +524,33 @@ async function runSmartSchedule() {
             if (sameShiftThisWeekend) score -= 40; // penalize same shift type on weekend
           }
 
-          // Avoid back-to-back: night → morning
-          if (dayIdx > 0 && shIdx === 0) {
-            const pd = weekDates[dayIdx-1]; const prevDate = pd.getFullYear()+"-"+String(pd.getMonth()+1).padStart(2,"0")+"-"+String(pd.getDate()).padStart(2,"0");
-            if ((newSched[prevDate]?.["night"]||[]).includes(emp.id)) score -= 80;
+          // Avoid exhausting sequences
+          if (dayIdx > 0) {
+            const pd = weekDates[dayIdx-1];
+            const prevDate = pd.getFullYear()+"-"+String(pd.getMonth()+1).padStart(2,"0")+"-"+String(pd.getDate()).padStart(2,"0");
+            const prevShifts = newSched[prevDate] || {};
+
+            // night yesterday → morning today = HARD BLOCK
+            if (shiftId === "morning" || shiftId === "morning2") {
+              if ((prevShifts["night"]||[]).includes(emp.id)) score -= 200;
+            }
+            // night yesterday → afternoon today = very bad (short rest)
+            if (shiftId === "afternoon") {
+              if ((prevShifts["night"]||[]).includes(emp.id)) score -= 60;
+            }
+            // afternoon yesterday → morning today = bad
+            if (shiftId === "morning" || shiftId === "morning2") {
+              if ((prevShifts["afternoon"]||[]).includes(emp.id)) score -= 40;
+            }
+
+            // Avoid 3+ consecutive days (8-8-8 pattern)
+            if (dayIdx >= 2) {
+              const pd2 = weekDates[dayIdx-2];
+              const prevDate2 = pd2.getFullYear()+"-"+String(pd2.getMonth()+1).padStart(2,"0")+"-"+String(pd2.getDate()).padStart(2,"0");
+              const workedYesterday = SHIFTS.some(s => (prevShifts[s.id]||[]).includes(emp.id));
+              const workedDayBefore = SHIFTS.some(s => ((newSched[prevDate2]||{})[s.id]||[]).includes(emp.id));
+              if (workedYesterday && workedDayBefore) score -= 25; // 3 days in a row penalty
+            }
           }
 
           // Avoid double shift same day
