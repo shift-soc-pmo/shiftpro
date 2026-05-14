@@ -418,6 +418,12 @@ async function runSmartSchedule() {
         if (!emp.fixed_shifts[fixedKey]) return;
         if (lockedEmpIds.includes(emp.id)) return;
         if (newSched[dateStr][shiftId].includes(emp.id)) return;
+        // Respect max shifts even for fixed schedule
+        const empMax = emp.max_shifts_per_week || 5;
+        if ((totalCount[emp.id]||0) >= empMax) return;
+        // No double shift same day
+        const hasOtherShiftToday = SHIFTS.some(s => s.id !== shiftId && (newSched[dateStr]?.[s.id]||[]).includes(emp.id));
+        if (hasOtherShiftToday) return;
         // Check exclusions
         const dateStrLocal2 = dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0");
         if (emp.exclude_from && emp.exclude_to && dateStrLocal2 >= emp.exclude_from && dateStrLocal2 <= emp.exclude_to) return;
@@ -1553,7 +1559,9 @@ function viewSchedule() {
           const i = empIdx(empId);
           const col = ec(i);
           const ch = S.customHours[date+"|"+shift.id+"|"+empId];
-          const chip = e("div",{class:"emp-chip",style:`background:${col}22;border:1px solid ${col}44;color:${col}`},[
+          const isFilteredOut = S.schedFilter && S.schedFilter !== empId;
+          const isHighlighted = S.schedFilter && S.schedFilter === empId;
+          const chip = e("div",{class:"emp-chip",style:`background:${isHighlighted?col+"44":col+"22"};border:${isHighlighted?"2px":"1px"} solid ${isHighlighted?col:col+"44"};color:${col};opacity:${isFilteredOut?"0.2":"1"};${isHighlighted?"box-shadow:0 0 8px "+col+"44;":""}`},[
             e("span",{style:`width:6px;height:6px;border-radius:50%;background:${col};flex-shrink:0`},""),
             e("span",{},emp.name.split(" ")[0]),
             ch ? e("span",{style:"font-size:9px;opacity:0.7"},` ${ch.start}-${ch.end}`) : null,
@@ -1720,7 +1728,13 @@ function viewWorkload(wd) {
     (S.schedule[d]?.[sh.id]||[]).forEach(id => { counts[id] = (counts[id]||0)+1; });
   }));
 
-  const card = div("card",[e("div",{class:"card-title"},"עומס עובדים — השבוע")]);
+  if (!S.schedFilter) S.schedFilter = null;
+  const card = div("card",[
+    e("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"},[
+      e("div",{class:"card-title",style:"margin-bottom:0"},"עומס עובדים — השבוע"),
+      S.schedFilter ? btn("btn-sm btn-sm-gray","✕ הסר פילטר",()=>{S.schedFilter=null;render();}) : null
+    ])
+  ]);
   S.employees.forEach((emp, idx) => {
     const count = counts[emp.id]||0;
     const max = emp.max_shifts_per_week||5;
@@ -1728,17 +1742,19 @@ function viewWorkload(wd) {
     const over = count > max;
     const col = ec(idx);
     const barColor = over?"#EF4444":pct>80?"#F59E0B":"#10B981";
+    const isFiltered = S.schedFilter === emp.id;
     card.appendChild(div("workload-row",[
       div("workload-info",[
-        e("div",{style:"display:flex;align-items:center;gap:7px"},[
+        e("div",{style:"display:flex;align-items:center;gap:7px;cursor:pointer",onclick:()=>{S.schedFilter=isFiltered?null:emp.id;render();}},[
           e("span",{style:`width:8px;height:8px;border-radius:50%;background:${col}`},""),
-          e("span",{style:"font-size:13px;font-weight:600"},emp.name),
+          e("span",{style:"font-size:13px;font-weight:"+(isFiltered?"800":"600")+";color:"+(isFiltered?"#60A5FA":"#E2E8F0")},emp.name),
+          isFiltered ? e("span",{style:"font-size:10px;background:#3B82F622;color:#60A5FA;border:1px solid #3B82F644;border-radius:4px;padding:1px 5px"},"מסונן") : null,
           over ? e("span",{style:"font-size:10px;background:#EF444422;color:#EF4444;border:1px solid #EF444444;border-radius:4px;padding:1px 5px"},"חריגה!") : null
         ]),
         e("span",{style:"font-size:12px;color:"+(over?"#EF4444":"#94A3B8")},`${count}/${max}`)
       ]),
       div("workload-bar-bg",[
-        e("div",{class:"workload-bar-fill",style:`width:${pct}%;background:${barColor}`})
+        e("div",{class:"workload-bar-fill",style:`width:${pct}%;background:${isFiltered?"#3B82F6":barColor}`})
       ])
     ]));
   });
