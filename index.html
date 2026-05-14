@@ -393,7 +393,7 @@ async function runSmartSchedule() {
   });
 
   weekDates.forEach((dateObj, dayIdx) => {
-    const dateStr = dateObj.toISOString().split("T")[0];
+    const dateStr = dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0");
     const dayName = DAYS[dateObj.getDay()];
     newSched[dateStr] = {};
 
@@ -433,7 +433,7 @@ async function runSmartSchedule() {
       });
 
       // כמה עובדים דרושים לכל משמרת (ניתן להגדיר בהגדרות)
-      const shiftTargets = S.business?.shift_targets || { morning: 2, afternoon: 1, night: 1 };
+      const shiftTargets = S.business?.shift_targets || { morning: 2, morning2: 1, afternoon: 1, night: 1 };
       const target = shiftTargets[shiftId] || 2;
       if (lockedEmpIds.length >= target) return;
       const need = target - lockedEmpIds.length;
@@ -487,7 +487,7 @@ async function runSmartSchedule() {
           if (allowedShifts && allowedShifts.length > 0 && !allowedShifts.includes(shiftId)) return null;
 
           // Scoring
-          score -= totalCount[emp.id] * 12;
+
           if (preferred.includes(shiftId)) score += 30;
           if (dayConstraints[dayName]?.[shiftId] === 1) score += 20;
 
@@ -501,7 +501,7 @@ async function runSmartSchedule() {
               // Match by exact date first
               if (sl.date && sl.date === dateStr2) return slShift === blockedShiftId || slShift === shiftId;
               // Fallback: match by day of week + same week
-              if (s.week_start === weekDates[0].toISOString?.().split("T")[0] || s.week_start === getWeekDates(S.weekOffset)[0]) {
+              if (s.week_start === getWeekDates(S.weekOffset)[0] || s.week_start === getWeekDates(S.weekOffset)[0]) {
                 return (slShift === blockedShiftId || slShift === shiftId) && sl.day === dateObj.getDay();
               }
               return false;
@@ -525,7 +525,7 @@ async function runSmartSchedule() {
 
           // Avoid back-to-back: night → morning
           if (dayIdx > 0 && shIdx === 0) {
-            const prevDate = weekDates[dayIdx-1].toISOString().split("T")[0];
+            const pd = weekDates[dayIdx-1]; const prevDate = pd.getFullYear()+"-"+String(pd.getMonth()+1).padStart(2,"0")+"-"+String(pd.getDate()).padStart(2,"0");
             if ((newSched[prevDate]?.["night"]||[]).includes(emp.id)) score -= 80;
           }
 
@@ -3388,12 +3388,12 @@ function viewSettings() {
     {id:"night",label:"לילה",sk:"night"},
   ];
   shiftDefs.forEach(sh=>{
-    shiftCard.appendChild(e("div",{style:"margin-bottom:12px"},[
-      e("div",{style:"font-weight:700;font-size:13px;color:"+SHIFT_BY_ID[sh.id].color+";margin-bottom:6px"},sh.label),
-      div("form-row",[
-        div("form-col",[e("label",{class:"form-label"},"התחלה"),e("input",{class:"fi",type:"time",value:sd[sh.sk+"Start"]||SHIFT_BY_ID[sh.id].start,onchange:ev=>{sd[sh.sk+"Start"]=ev.target.value}})]),
-        div("form-col",[e("label",{class:"form-label"},"סיום"),e("input",{class:"fi",type:"time",value:sd[sh.sk+"End"]||SHIFT_BY_ID[sh.id].end,onchange:ev=>{sd[sh.sk+"End"]=ev.target.value}})])
-      ])
+    const shColor = SHIFT_BY_ID[sh.id]?.color || "#94A3B8";
+    shiftCard.appendChild(e("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#0F172A;border-radius:10px;padding:8px 12px;border:1px solid "+shColor+"33"},[
+      e("div",{style:"font-weight:700;font-size:12px;color:"+shColor+";min-width:55px"},sh.label),
+      e("input",{type:"time",value:sd[sh.sk+"Start"]||SHIFT_BY_ID[sh.id]?.start||"07:00",style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 8px;font-size:14px;font-family:inherit;flex:1",onchange:ev=>{sd[sh.sk+"Start"]=ev.target.value}}),
+      e("span",{style:"color:#475569;font-size:12px"},"—"),
+      e("input",{type:"time",value:sd[sh.sk+"End"]||SHIFT_BY_ID[sh.id]?.end||"15:00",style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 8px;font-size:14px;font-family:inherit;flex:1",onchange:ev=>{sd[sh.sk+"End"]=ev.target.value}})
     ]));
   });
   shiftCard.appendChild(btn("btn-add","שמור שעות",()=>{
@@ -3414,19 +3414,17 @@ function viewSettings() {
   if(!sd.weNightStart) sd.weNightStart = WEEKEND_SHIFTS[1].start;
   if(!sd.weNightEnd) sd.weNightEnd = WEEKEND_SHIFTS[1].end;
 
-  weCard.appendChild(e("div",{style:"margin-bottom:12px"},[
-    e("div",{style:"font-weight:700;font-size:13px;color:#F59E0B;margin-bottom:6px"},"בוקר"),
-    div("form-row",[
-      div("form-col",[e("label",{class:"form-label"},"התחלה"),e("input",{class:"fi",type:"time",value:sd.weMorningStart,onchange:ev=>{sd.weMorningStart=ev.target.value}})]),
-      div("form-col",[e("label",{class:"form-label"},"סיום"),e("input",{class:"fi",type:"time",value:sd.weMorningEnd,onchange:ev=>{sd.weMorningEnd=ev.target.value}})])
-    ])
+  weCard.appendChild(e("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#0F172A;border-radius:10px;padding:8px 12px;border:1px solid #F59E0B33"},[
+    e("div",{style:"font-weight:700;font-size:12px;color:#F59E0B;min-width:55px"},"בוקר"),
+    e("input",{type:"time",value:sd.weMorningStart,style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 8px;font-size:14px;font-family:inherit;flex:1",onchange:ev=>{sd.weMorningStart=ev.target.value}}),
+    e("span",{style:"color:#475569;font-size:12px"},"—"),
+    e("input",{type:"time",value:sd.weMorningEnd,style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 8px;font-size:14px;font-family:inherit;flex:1",onchange:ev=>{sd.weMorningEnd=ev.target.value}})
   ]));
-  weCard.appendChild(e("div",{style:"margin-bottom:12px"},[
-    e("div",{style:"font-weight:700;font-size:13px;color:#6366F1;margin-bottom:6px"},"לילה"),
-    div("form-row",[
-      div("form-col",[e("label",{class:"form-label"},"התחלה"),e("input",{class:"fi",type:"time",value:sd.weNightStart,onchange:ev=>{sd.weNightStart=ev.target.value}})]),
-      div("form-col",[e("label",{class:"form-label"},"סיום"),e("input",{class:"fi",type:"time",value:sd.weNightEnd,onchange:ev=>{sd.weNightEnd=ev.target.value}})])
-    ])
+  weCard.appendChild(e("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#0F172A;border-radius:10px;padding:8px 12px;border:1px solid #6366F133"},[
+    e("div",{style:"font-weight:700;font-size:12px;color:#6366F1;min-width:55px"},"לילה"),
+    e("input",{type:"time",value:sd.weNightStart,style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 8px;font-size:14px;font-family:inherit;flex:1",onchange:ev=>{sd.weNightStart=ev.target.value}}),
+    e("span",{style:"color:#475569;font-size:12px"},"—"),
+    e("input",{type:"time",value:sd.weNightEnd,style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 8px;font-size:14px;font-family:inherit;flex:1",onchange:ev=>{sd.weNightEnd=ev.target.value}})
   ]));
   weCard.appendChild(btn("btn-add","שמור שעות סופ״ש",()=>{
     if(sd.weMorningStart && sd.weMorningEnd) { WEEKEND_SHIFTS[0].start=sd.weMorningStart; WEEKEND_SHIFTS[0].end=sd.weMorningEnd; }
@@ -3434,6 +3432,31 @@ function viewSettings() {
     toast("שעות סופ״ש עודכנו ✓");render();
   }));
   wrap.appendChild(weCard);
+
+  // Shift targets (how many employees per shift)
+  const targetsCard = div("card",[e("div",{class:"card-title"},"👥 כמות עובדים למשמרת")]);
+  targetsCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},"כמה עובדים לשבץ בכל משמרת בשיבוץ האוטומטי"));
+  if(!sd.targets) sd.targets = S.business?.shift_targets || {morning:2,morning2:1,afternoon:1,night:1};
+  const targetShifts = [
+    {id:"morning",label:"בוקר",color:"#F59E0B"},
+    {id:"morning2",label:"בוקר ב׳",color:"#F97316"},
+    {id:"afternoon",label:"צהריים",color:"#10B981"},
+    {id:"night",label:"לילה",color:"#6366F1"},
+  ];
+  targetShifts.forEach(sh => {
+    targetsCard.appendChild(e("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:6px;background:#0F172A;border-radius:10px;padding:8px 12px;border:1px solid "+sh.color+"33"},[
+      e("div",{style:"font-weight:700;font-size:12px;color:"+sh.color+";min-width:65px"},sh.label),
+      e("input",{type:"number",min:0,max:10,value:sd.targets[sh.id]||0,style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 10px;font-size:14px;font-family:inherit;width:60px;text-align:center",
+        oninput:ev=>{sd.targets[sh.id]=parseInt(ev.target.value)||0;}}),
+      e("span",{style:"font-size:12px;color:#64748B"},"עובדים")
+    ]));
+  });
+  targetsCard.appendChild(btn("btn-add","שמור כמויות",async()=>{
+    await sb.from("businesses").update({shift_targets:sd.targets}).eq("id",S.profile.business_id);
+    S.business.shift_targets = sd.targets;
+    toast("כמויות עודכנו ✓");render();
+  },{style:"width:100%;margin-top:8px"}));
+  wrap.appendChild(targetsCard);
 
   // Deadline
   const dlCard = div("card",[e("div",{class:"card-title"},"⏰ דדליין להגשת חסימות")]);
@@ -4085,10 +4108,15 @@ function viewManagerBlocks() {
       grid.appendChild(e("div",{style:"background:#1E293B;border:1px solid "+(sh?.color||"#64748B")+"44;border-radius:10px;padding:8px 12px;opacity:"+(isPast?"0.5":"1")},[
         e("div",{style:"font-weight:700;font-size:12px;color:"+(sh?.color||"#94A3B8")},dayLabel),
         e("div",{style:"font-size:11px;color:"+(sh?.color||"#64748B")},sh?.label || b.shift),
-        b.reason ? e("div",{style:"font-size:10px;color:#FCA5A5;margin-top:4px;font-style:italic"},"💬 "+b.reason) : null
+        null
       ]));
     });
     empBox.appendChild(grid);
+    // Show note once for the employee
+    const empNote = weekSubs.find(s => s.employee_id === empId)?.note;
+    if (empNote && empNote !== "חסימות") {
+      empBox.appendChild(e("div",{style:"margin-top:8px;background:#F59E0B11;border:1px solid #F59E0B33;border-radius:8px;padding:8px 12px;font-size:12px;color:#FCD34D;font-style:italic"},"💬 "+empNote));
+    }
     wrap.appendChild(empBox);
   });
 
