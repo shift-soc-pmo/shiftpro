@@ -434,7 +434,8 @@ async function runSmartSchedule() {
 
       // כמה עובדים דרושים לכל משמרת (ניתן להגדיר בהגדרות)
       const shiftTargets = S.business?.shift_targets || { morning: 2, morning2: 1, afternoon: 1, night: 1 };
-      const target = shiftTargets[shiftId] || 2;
+      const weekendTargets = S.business?.weekend_targets || { morning: 2, night: 1 };
+      const target = isWeekend ? (weekendTargets[shiftId] || 1) : (shiftTargets[shiftId] || 2);
       if (lockedEmpIds.length >= target) return;
       const need = target - lockedEmpIds.length;
 
@@ -2940,7 +2941,7 @@ function viewEmpView() {
           localStorage.setItem("blockDefaults_" + emp.id, JSON.stringify(defaults));
           toast("ברירת מחדל נשמרה ✓");
         }),
-        btn("btn-sm btn-sm-red","📤 שלח בקשות חסימה",async()=>{
+        btn("btn-sm btn-sm-red",existingSub?"📤 עדכן חסימות":"📤 שלח חסימות",async()=>{
           if (!selKeys.length && !document.getElementById("block-special-request")?.value?.trim()) { toast("בחר משמרת או כתוב הודעה","err"); return; }
           const specialMsg = document.getElementById("block-special-request")?.value?.trim() || "";
           if (selKeys.length > 0) {
@@ -2966,7 +2967,7 @@ function viewEmpView() {
           S.availDraft={}; S.blockReasons={};
           toast("נשלח בהצלחה ✓"); render();
         },{style:"flex:1"}),
-        btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};S.blockReasons={};render();})
+        btn("btn-sm btn-sm-gray","נקה",()=>{S.availDraft={};S.blockReasons={};S._draftCleared=true;render();})
       ],{style:"margin-top:12px"}));
     }
 
@@ -3458,6 +3459,29 @@ function viewSettings() {
   },{style:"width:100%;margin-top:8px"}));
   wrap.appendChild(targetsCard);
 
+  // Weekend shift targets
+  const weTargetsCard = div("card",[e("div",{class:"card-title"},"👥 כמות עובדים — שישי שבת")]);
+  weTargetsCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},"בסופ״ש יש רק בוקר ולילה"));
+  if(!sd.weTargets) sd.weTargets = S.business?.weekend_targets || {morning:2,night:1};
+  const weTargetShifts = [
+    {id:"morning",label:"בוקר",color:"#F59E0B"},
+    {id:"night",label:"לילה",color:"#6366F1"},
+  ];
+  weTargetShifts.forEach(sh => {
+    weTargetsCard.appendChild(e("div",{style:"display:flex;align-items:center;gap:8px;margin-bottom:6px;background:#0F172A;border-radius:10px;padding:8px 12px;border:1px solid "+sh.color+"33"},[
+      e("div",{style:"font-weight:700;font-size:12px;color:"+sh.color+";min-width:65px"},sh.label),
+      e("input",{type:"number",min:0,max:10,value:sd.weTargets[sh.id]||0,style:"background:#1E293B;border:1px solid #334155;border-radius:8px;color:#E2E8F0;padding:6px 10px;font-size:14px;font-family:inherit;width:60px;text-align:center",
+        oninput:ev=>{sd.weTargets[sh.id]=parseInt(ev.target.value)||0;}}),
+      e("span",{style:"font-size:12px;color:#64748B"},"עובדים")
+    ]));
+  });
+  weTargetsCard.appendChild(btn("btn-add","שמור כמויות סופ״ש",async()=>{
+    await sb.from("businesses").update({weekend_targets:sd.weTargets}).eq("id",S.profile.business_id);
+    S.business.weekend_targets = sd.weTargets;
+    toast("כמויות סופ״ש עודכנו ✓");render();
+  },{style:"width:100%;margin-top:8px"}));
+  wrap.appendChild(weTargetsCard);
+
   // Deadline
   const dlCard = div("card",[e("div",{class:"card-title"},"⏰ דדליין להגשת חסימות")]);
   dlCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},"עובדים לא יוכלו להגיש חסימות אחרי הדדליין"));
@@ -3907,12 +3931,30 @@ function viewManagerBlocks() {
         return count;
       }
 
-      const card = div("card");
+      // Pre-populate with existing blocks for this week
+    const existingSub = S.availSubmissions.find(s => s.employee_id === emp.id && s.week_start === targetStart);
+    if (existingSub && Object.keys(S.availDraft).length === 0 && !S._draftCleared) {
+      (existingSub.slots || []).forEach(sl => {
+        targetDates.forEach((date, di) => {
+          if (sl.date === date || (!sl.date && new Date(date+"T00:00:00").getDay() === sl.day)) {
+            S.availDraft[di+"|"+sl.shift] = true;
+          }
+        });
+      });
+    }
+
+    const card = div("card");
+
+    if (existingSub) {
+      card.appendChild(e("div",{style:"background:#3B82F618;border:1px solid #3B82F633;border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center"},[
+        e("div",{style:"font-size:12px;color:#60A5FA;font-weight:600"},"📝 יש חסימות קיימות לשבוע זה — ניתן לעדכן ולשלוח מחדש"),
+      ]));
+    }
 
       // Week selector
       card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
-        btn("","שבוע הבא",()=>{S.availTargetOffset=1;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===1?"#EF4444aa":"#334155")+";background:"+(targetOffset===1?"#EF444422":"#1E293B")+";color:"+(targetOffset===1?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"}),
-        btn("","עוד שבועיים",()=>{S.availTargetOffset=2;S.availDraft={};render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===2?"#EF4444aa":"#334155")+";background:"+(targetOffset===2?"#EF444422":"#1E293B")+";color:"+(targetOffset===2?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"})
+        btn("","שבוע הבא",()=>{S.availTargetOffset=1;S.availDraft={};S._draftCleared=true;render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===1?"#EF4444aa":"#334155")+";background:"+(targetOffset===1?"#EF444422":"#1E293B")+";color:"+(targetOffset===1?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"}),
+        btn("","עוד שבועיים",()=>{S.availTargetOffset=2;S.availDraft={};S._draftCleared=true;render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===2?"#EF4444aa":"#334155")+";background:"+(targetOffset===2?"#EF444422":"#1E293B")+";color:"+(targetOffset===2?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"})
       ]));
       card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6])));
 
