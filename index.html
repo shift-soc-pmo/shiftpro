@@ -554,8 +554,11 @@ async function runSmartSchedule() {
           }
 
           // Avoid double shift same day
-          const alreadyToday = shiftIds.slice(0,shIdx).some(s => (newSched[dateStr][s]||[]).includes(emp.id));
+          const alreadyToday = dayShiftIds.slice(0,shIdx).some(s => (newSched[dateStr][s]||[]).includes(emp.id));
           if (alreadyToday) return null;
+          // Also check all shifts (including ones already assigned by fixed schedule)
+          const anyShiftToday = SHIFTS.some(s => s.id !== shiftId && (newSched[dateStr]?.[s.id]||[]).includes(emp.id));
+          if (anyShiftToday) return null;
 
           return { emp, score };
         })
@@ -2964,7 +2967,7 @@ function viewEmpView() {
           localStorage.setItem("blockDefaults_" + emp.id, JSON.stringify(defaults));
           toast("ברירת מחדל נשמרה ✓");
         }),
-        btn("btn-sm btn-sm-red",existingSub?"📤 עדכן חסימות":"📤 שלח חסימות",async()=>{
+        btn("btn-sm btn-sm-red","📤 שלח / עדכן חסימות",async()=>{
           if (!selKeys.length && !document.getElementById("block-special-request")?.value?.trim()) { toast("בחר משמרת או כתוב הודעה","err"); return; }
           const specialMsg = document.getElementById("block-special-request")?.value?.trim() || "";
           if (selKeys.length > 0) {
@@ -2976,16 +2979,14 @@ function viewEmpView() {
           }
           // Send special message to manager if exists
           if (specialMsg) {
-            const adminEmp = S.employees.find(e=>e.role==="admin"||e.role==="manager");
-            if (adminEmp?.email) {
-              sendEmail("block_message", adminEmp?.email, {
-              requesterName: emp.name,
-              targetDate: fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6]),
-              shiftLabel: "בקשה מיוחדת לחסימות",
-              note: specialMsg
+            S.employees.filter(e=>(e.role==="admin"||e.role==="manager") && e.email).forEach(adminEmp => {
+              sendEmail("block_message", adminEmp.email, {
+                requesterName: emp.name,
+                targetDate: fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6]),
+                shiftLabel: "בקשה מיוחדת לחסימות",
+                note: specialMsg
+              });
             });
-
-            }
           }
           S.availDraft={}; S.blockReasons={};
           toast("נשלח בהצלחה ✓"); render();
