@@ -294,6 +294,63 @@ function getShiftsForDate(date) {
 }
 const SHIFT_BY_ID = Object.fromEntries(SHIFTS.map(s=>[s.id,s]));
 const SHIFT_LABELS = Object.fromEntries(SHIFTS.map(s=>[s.id,s.label]));
+// Jewish Holidays 2026-2027
+const JEWISH_HOLIDAYS = {
+  // 2026
+  "2026-03-17": "תענית אסתר",
+  "2026-03-17": "פורים",
+  "2026-04-02": "ערב פסח",
+  "2026-04-03": "פסח",
+  "2026-04-04": "פסח",
+  "2026-04-08": "שביעי של פסח",
+  "2026-04-09": "שביעי של פסח",
+  "2026-04-15": "יום השואה",
+  "2026-04-22": "יום הזיכרון",
+  "2026-04-23": "יום העצמאות",
+  "2026-05-07": "ל״ג בעומר",
+  "2026-05-22": "ערב שבועות",
+  "2026-05-23": "שבועות",
+  "2026-07-07": "צום י״ז בתמוז",
+  "2026-07-28": "צום תשעה באב",
+  "2026-09-11": "ערב ראש השנה",
+  "2026-09-12": "ראש השנה א׳",
+  "2026-09-13": "ראש השנה ב׳",
+  "2026-09-14": "צום גדליה",
+  "2026-09-21": "ערב יום כיפור",
+  "2026-09-22": "יום כיפור",
+  "2026-09-26": "ערב סוכות",
+  "2026-09-27": "סוכות",
+  "2026-10-03": "הושענא רבה",
+  "2026-10-04": "שמחת תורה",
+  "2026-12-05": "חנוכה",
+  "2026-12-06": "חנוכה",
+  "2026-12-07": "חנוכה",
+  "2026-12-08": "חנוכה",
+  "2026-12-09": "חנוכה",
+  "2026-12-10": "חנוכה",
+  "2026-12-11": "חנוכה",
+  "2026-12-12": "חנוכה",
+  // 2027
+  "2027-03-04": "פורים",
+  "2027-03-22": "ערב פסח",
+  "2027-03-23": "פסח",
+  "2027-03-24": "פסח",
+  "2027-03-28": "שביעי של פסח",
+  "2027-03-29": "שביעי של פסח",
+  "2027-04-04": "יום השואה",
+  "2027-04-11": "יום הזיכרון",
+  "2027-04-12": "יום העצמאות",
+  "2027-04-27": "ל״ג בעומר",
+  "2027-05-12": "ערב שבועות",
+  "2027-05-13": "שבועות",
+  "2027-10-02": "ראש השנה א׳",
+  "2027-10-03": "ראש השנה ב׳",
+  "2027-10-11": "יום כיפור",
+  "2027-10-16": "סוכות",
+  "2027-10-23": "שמחת תורה",
+};
+function getHoliday(dateStr) { return JEWISH_HOLIDAYS[dateStr] || null; }
+
 const EMP_COLORS = ["#3B82F6","#EC4899","#14B8A6","#F97316","#8B5CF6","#EF4444","#06B6D4","#84CC16","#F59E0B","#6366F1"];
 const ec = (idx) => EMP_COLORS[idx % EMP_COLORS.length];
 
@@ -392,17 +449,56 @@ async function runSmartSchedule() {
     weekendCount[emp.id] = 0;
   });
 
-  weekDates.forEach((dateObj, dayIdx) => {
+  // Calculate ideal shifts per employee
+  const totalSlotsNeeded = (() => {
+    let total = 0;
+    const wt = S.business?.weekend_targets || {morning:2,night:1};
+    const st = S.business?.shift_targets || {morning:2,morning2:1,afternoon:1,night:1};
+    weekDates.forEach(d => {
+      const dow = d.getDay();
+      const isWE = dow === 5 || dow === 6;
+      if (isWE) {
+        total += (wt.morning||1) + (wt.night||1);
+      } else {
+        total += (st.morning||2) + (st.morning2||1) + (st.afternoon||1) + (st.night||1);
+      }
+    });
+    return total;
+  })();
+  const availableEmps = S.employees.filter(emp => {
+    if (emp.exclude_from && emp.exclude_to) {
+      const start = emp.exclude_from, end = emp.exclude_to;
+      const weekStart = getWeekDates(S.weekOffset)[0];
+      const weekEnd = getWeekDates(S.weekOffset)[6];
+      if (start <= weekEnd && end >= weekStart) return false;
+    }
+    return true;
+  }).length || 1;
+  const idealShifts = Math.round(totalSlotsNeeded / availableEmps);
+  console.log("📊 Auto-schedule: " + totalSlotsNeeded + " slots / " + availableEmps + " employees = ideal " + idealShifts + " shifts each");
+
+  // Reorder: weekend FIRST (Fri=5, Sat=6), then weekdays (Sun-Thu)
+  const schedOrder = [];
+  weekDates.forEach((d,i) => { if (d.getDay()===5||d.getDay()===6) schedOrder.push(i); });
+  weekDates.forEach((d,i) => { if (d.getDay()!==5&&d.getDay()!==6) schedOrder.push(i); });
+
+  schedOrder.forEach(dayIdx => {
+    const dateObj = weekDates[dayIdx];
     const dateStr = dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0");
     const dayName = DAYS[dateObj.getDay()];
     newSched[dateStr] = {};
 
-    // On weekends (Fri/Sat), skip afternoon shift
     const dayOfWeek = dateObj.getDay();
     const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
     const dayShiftIds = isWeekend ? shiftIds.filter(s => s !== "afternoon" && s !== "morning2") : shiftIds;
 
-    dayShiftIds.forEach((shiftId, shIdx) => {
+    // On weekdays, schedule night FIRST (hardest to fill), then afternoon, then mornings
+    const orderedShiftIds = isWeekend ? dayShiftIds : [...dayShiftIds].sort((a,b) => {
+      const priority = {night:0, afternoon:1, morning2:2, morning:3};
+      return (priority[a]??9) - (priority[b]??9);
+    });
+
+    orderedShiftIds.forEach((shiftId, shIdx) => {
       const lockedKey = dateStr+"|"+shiftId;
       const lockedEmpIds = S.lockedSlots[lockedKey] ? [...S.lockedSlots[lockedKey]] : [];
       newSched[dateStr][shiftId] = [...lockedEmpIds];
@@ -569,7 +665,11 @@ async function runSmartSchedule() {
           return { emp, score };
         })
         .filter(Boolean)
-        .sort((a,b) => b.score - a.score);
+        .sort((a,b) => {
+          const diff = b.score - a.score;
+          if (Math.abs(diff) < 5) return Math.random() - 0.5; // random tiebreaker
+          return diff;
+        });
 
       const toAdd = scored.slice(0, need).map(s => s.emp.id);
       newSched[dateStr][shiftId].push(...toAdd);
@@ -580,6 +680,54 @@ async function runSmartSchedule() {
       });
     });
   });
+
+  // Balance pass — if employees are still under-assigned, add to afternoon shifts
+  const underAssigned = S.employees.filter(emp => {
+    const count = totalCount[emp.id] || 0;
+    return count < idealShifts - 1 && count < (emp.max_shifts_per_week || 5);
+  });
+  
+  if (underAssigned.length > 0) {
+    console.log("📊 Balance pass: " + underAssigned.length + " employees under-assigned, trying afternoon overflow");
+    // Go through weekdays and try to add them to afternoon
+    const weekdayDates = weekDates.filter(d => d.getDay() !== 5 && d.getDay() !== 6);
+    for (const emp of underAssigned) {
+      for (const dateObj of weekdayDates) {
+        if ((totalCount[emp.id]||0) >= idealShifts) break;
+        const ds = dateObj.getFullYear()+"-"+String(dateObj.getMonth()+1).padStart(2,"0")+"-"+String(dateObj.getDate()).padStart(2,"0");
+        // Check if already working this day
+        const worksToday = SHIFTS.some(s => (newSched[ds]?.[s.id]||[]).includes(emp.id));
+        if (worksToday) continue;
+        // Check active days
+        const activeDays = emp.active_days || [0,1,2,3,4,5,6];
+        if (!activeDays.includes(dateObj.getDay())) continue;
+        // Check allowed shifts
+        const empAllowed = emp.allowed_shifts || SHIFTS.map(s=>s.id);
+        if (!empAllowed.includes("afternoon")) continue;
+        // Check exclusion
+        if (emp.exclude_from && emp.exclude_to && ds >= emp.exclude_from && ds <= emp.exclude_to) continue;
+        // Check vacation
+        const onVac = S.vacations.some(v => v.employee_id === emp.id && v.status === "approved" && ds >= v.start_date && ds <= v.end_date);
+        if (onVac) continue;
+        // Check blocks
+        const isBlocked = S.availSubmissions.some(s => s.employee_id === emp.id && (s.slots||[]).some(sl => { if (sl.date && sl.date === ds) return sl.shift === "afternoon"; return false; }));
+        if (isBlocked) continue;
+        // Check night before / morning after conflicts
+        const prevDay = weekDates[weekDates.indexOf(dateObj)-1];
+        if (prevDay) {
+          const pds = prevDay.getFullYear()+"-"+String(prevDay.getMonth()+1).padStart(2,"0")+"-"+String(prevDay.getDate()).padStart(2,"0");
+          if ((newSched[pds]?.["night"]||[]).includes(emp.id)) continue;
+        }
+        // Add to afternoon
+        if (!newSched[ds]["afternoon"]) newSched[ds]["afternoon"] = [];
+        if (!newSched[ds]["afternoon"].includes(emp.id)) {
+          newSched[ds]["afternoon"].push(emp.id);
+          totalCount[emp.id] = (totalCount[emp.id]||0) + 1;
+          console.log("📊 Added " + emp.name + " to afternoon on " + ds);
+        }
+      }
+    }
+  }
 
   S.schedule = newSched;
   // Save immediately (no debounce)
@@ -1130,13 +1278,14 @@ async function deleteVacRequest(id) {
   render();
 }
 
-async function updateVacStatus(id, status) {
-  await sb.from("vacations").update({status, approved_by: S.user.id}).eq("id",id);
+async function updateVacStatus(id, status, rejectReason) {
+  const updateData = {status, approved_by: S.user.id};
+  if (rejectReason) updateData.reject_reason = rejectReason;
+  await sb.from("vacations").update(updateData).eq("id",id);
   await loadVacations();
   toast(status==="approved"?"חופשה אושרה ✓":"חופשה נדחתה"); render();
   silentRefresh();
 
-  // Send email to employee
   const vac = S.vacations.find(v=>v.id===id);
   if (vac) {
     const emp = getEmp(vac.employee_id);
@@ -1144,7 +1293,7 @@ async function updateVacStatus(id, status) {
       sendEmail(
         status==="approved" ? "vacation_approved" : "vacation_rejected",
         emp.email,
-        { empName: emp.name, startDate: vac.start_date, endDate: vac.end_date, reason: vac.reason||"" }
+        { empName: emp.name, startDate: vac.start_date, endDate: vac.end_date, reason: vac.reason||"", rejectReason: rejectReason||"" }
       );
     }
   }
@@ -1469,7 +1618,8 @@ function viewSchedule() {
     const isToday = date === today();
     hrow.appendChild(e("th",{class:"day-header",style:isToday?"color:#60A5FA":""},[
       e("div",{style:"font-size:11px"},DAYS[dt.getDay()]),
-      e("div",{style:"font-size:18px;font-weight:900;color:"+(isToday?"#60A5FA":"#E2E8F0")},String(dt.getDate()))
+      e("div",{style:"font-size:18px;font-weight:900;color:"+(isToday?"#60A5FA":"#E2E8F0")},String(dt.getDate())),
+      getHoliday(date) ? e("div",{style:"font-size:8px;color:#FCD34D;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70px"},"✡️ "+getHoliday(date)) : null
     ]));
   });
   thead.appendChild(hrow);
@@ -1925,7 +2075,11 @@ function viewVacations() {
         ]),
         div("form-actions",[
           btn("btn-green","✓ אשר",()=>updateVacStatus(vac.id,"approved"),{style:"flex:1"}),
-          btn("btn-sm btn-sm-red","✗ דחה",()=>updateVacStatus(vac.id,"rejected"),{style:"flex:1"})
+          btn("btn-sm btn-sm-red","✗ דחה",()=>{
+            const reason = prompt("סיבת דחייה (אופציונלי):");
+            if (reason === null) return; // cancelled
+            updateVacStatus(vac.id,"rejected",reason);
+          },{style:"flex:1"})
         ])
       ]));
     });
@@ -1993,6 +2147,8 @@ function viewVacations() {
         ]),
         e("div",{style:"display:flex;align-items:center;gap:6px"},[
           e("span",{class:"status-badge status-"+(isApp?"approved":"rejected")},isApp?"אושר":"נדחה"),
+        s.reject_reason ? e("div",{style:"font-size:10px;color:#FCA5A5"},"סיבה: "+s.reject_reason) : null,
+          vac.reject_reason ? e("div",{style:"font-size:10px;color:#FCA5A5;margin-top:2px"},"סיבה: "+vac.reject_reason) : null,
           btn("btn-sm btn-sm-red","🗑️",()=>deleteVacRequest(vac.id),{style:"padding:4px 6px"})
         ])
       ]));
@@ -2004,7 +2160,7 @@ function viewVacations() {
 }
 
 // ── SWAPS ──
-async function processManagerDecision(swap, isApproved) {
+async function processManagerDecision(swap, isApproved, rejectReason) {
   if (isApproved) {
     // אימות אחרון לפני אישור בסידור
     if (swap.target_date && swap.giver_id) { // חילוף הדדי
@@ -2034,7 +2190,9 @@ async function processManagerDecision(swap, isApproved) {
     saveScheduleToDB();
   }
 
-  await sb.from("swaps").update({status: isApproved?"approved":"rejected"}).eq("id", swap.id);
+  const swapUpdate = {status: isApproved?"approved":"rejected"};
+  if (rejectReason) swapUpdate.reject_reason = rejectReason;
+  await sb.from("swaps").update(swapUpdate).eq("id", swap.id);
 
   const taker = getEmp(swap.taker_id);
   if (taker?.email) {
@@ -2047,7 +2205,8 @@ async function processManagerDecision(swap, isApproved) {
         targetDate: swap.target_date ? fmtDate(swap.date) + " ⇆ " + fmtDate(swap.target_date) : fmtDate(swap.date),
         shiftLabel: sh?.label || swap.shift,
         statusText: isApproved ? "אושרה" : "נדחתה",
-        isApproved: isApproved
+        isApproved: isApproved,
+        rejectReason: rejectReason||""
       }
     );
   }
@@ -2194,7 +2353,11 @@ function viewSwaps(forceEmployee) {
           s.note ? e("div",{style:"font-size:12px;color:#64748B;font-style:italic;margin-bottom:10px"},"\"" + s.note + "\""):null,
           div("form-actions",[
             btn("btn-green","✓ אשר בסידור",()=>processManagerDecision(s,true),{style:"flex:1"}),
-            btn("btn-sm btn-sm-red","✗ דחה",()=>processManagerDecision(s,false),{style:"flex:1"})
+            btn("btn-sm btn-sm-red","✗ דחה",()=>{
+          const reason = prompt("סיבת דחייה (אופציונלי):");
+          if (reason === null) return;
+          processManagerDecision(s,false,reason);
+        },{style:"flex:1"})
           ])
         ]));
       });
@@ -2742,7 +2905,8 @@ function viewEmpView() {
           e("div",{style:"flex:1"},[
             e("div",{style:"display:flex;align-items:center;gap:6px;margin-bottom:2px"},[
               e("span",{style:"font-weight:800;font-size:15px;color:"+shift.color},shift.label),
-              isToday?e("span",{style:"font-size:10px;background:#3B82F622;color:#60A5FA;border-radius:5px;padding:1px 6px"},"היום"):null
+              isToday?e("span",{style:"font-size:10px;background:#3B82F622;color:#60A5FA;border-radius:5px;padding:1px 6px"},"היום"):null,
+          getHoliday(date)?e("span",{style:"font-size:9px;background:#FCD34D22;color:#FCD34D;border-radius:5px;padding:1px 6px"}, "✡️ "+getHoliday(date)):null
             ]),
             e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0"},(ch?ch.start:shift.start)+" – "+(ch?ch.end:shift.end)),
             others.length>0?e("div",{style:"font-size:11px;color:#64748B;margin-top:3px"},"יחד עם: "+others.join(", ")):null,
@@ -2769,7 +2933,8 @@ function viewEmpView() {
       hrow.appendChild(e("th",{class:"day-header",style:isToday?"color:#60A5FA":""},[
         e("div",{style:"font-size:11px;font-weight:600"},DAYS[dt.getDay()]),
         e("div",{style:"font-size:16px;font-weight:900"},String(dt.getDate())),
-        e("div",{style:"font-size:9px;color:#64748B"},fullDate)
+        e("div",{style:"font-size:9px;color:#64748B"},fullDate),
+        getHoliday(date) ? e("div",{style:"font-size:8px;color:#FCD34D;font-weight:600"},"✡️") : null
       ]));
     });
     thead.appendChild(hrow);
@@ -3814,9 +3979,9 @@ function viewCalendar() {
   wrap.appendChild(div("section-header",[
     div("page-title",["🗓️ "+monthName]),
     e("div",{style:"display:flex;gap:8px"},[
-      btn("btn-sm btn-sm-gray","→",()=>{S.monthOffset++;render();}),
+      btn("btn-sm btn-sm-gray","→",()=>{S.monthOffset--;render();}),
       btn("btn-sm btn-sm-blue","החודש",()=>{S.monthOffset=0;render();}),
-      btn("btn-sm btn-sm-gray","←",()=>{S.monthOffset--;render();})
+      btn("btn-sm btn-sm-gray","←",()=>{S.monthOffset++;render();})
     ])
   ]));
 
@@ -3855,6 +4020,10 @@ function viewCalendar() {
     });
 
     cell.appendChild(e("div",{style:"font-size:12px;font-weight:"+(isToday?"900":"600")+";color:"+(isToday?"#60A5FA":"#E2E8F0")+";margin-bottom:2px"},String(d)));
+    const holiday = getHoliday(dateStr);
+    if (holiday) {
+      cell.appendChild(e("div",{style:"font-size:7px;color:#FCD34D;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},"✡️ "+holiday));
+    }
 
     // Show schedule data if available
     const daySched = S.schedule[dateStr];
