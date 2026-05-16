@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ניהול משמרות</title>
+<title>משמרת — ניהול משמרות חכם</title>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="manifest" href="manifest.json">
@@ -1374,7 +1374,7 @@ function viewLogin() {
   const card = e("div",{class:"login-card"});
 
   card.appendChild(div("logo-box",[
-    div("logo-icon",["📅"]),
+    e("img",{src:"logo-favicon.png",style:"width:40px;height:40px;border-radius:12px"}),
     e("div",{},[
       e("div",{class:"logo-name"},"ניהול משמרות"),
       e("div",{class:"logo-sub"},"מערכת ניהול משמרות")
@@ -1479,9 +1479,9 @@ const tabs = empOnly ? [
   return e("header",{class:"header"},[
     div("header-inner",[
       div("",[
-        div("logo-icon",["📅"]),
+        e("img",{src:"logo-favicon.png",style:"width:40px;height:40px;border-radius:12px"}),
         e("div",{style:"margin-right:10px"},[
-          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"ניהול משמרות"),
+          e("div",{style:"font-weight:900;font-size:15px;color:#E2E8F0"},"משמרת"),
           e("div",{style:"font-size:11px;color:#64748B"},S.business?.name||"")
         ])
       ].map((x,i)=>i===0?x:x), {style:"display:flex;align-items:center;gap:10px"}),
