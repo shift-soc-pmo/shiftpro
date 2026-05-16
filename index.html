@@ -1098,6 +1098,20 @@ function toggleCellEmp(date, shift, empId) {
     const conflict = checkShiftConflict(date, shift, empId);
     if (conflict) { toast(conflict,"err"); return; }
 
+    // Check if employee blocked this shift
+    const blockShiftId = (shift === "morning2") ? "morning" : shift;
+    const dateLocal = date;
+    const empBlocked = S.availSubmissions.some(s =>
+      s.employee_id === empId &&
+      (s.slots||[]).some(sl => {
+        if (sl.date && sl.date === dateLocal) return sl.shift === blockShiftId || sl.shift === shift;
+        return false;
+      })
+    );
+    if (empBlocked) {
+      if (!confirm("⚠️ " + (getEmp(empId)?.name||"העובד") + " חסם את המשמרת הזו!\nלשבץ בכל זאת?")) return;
+    }
+
     if (!arr.includes(empId)) arr.push(empId);
   }
   saveScheduleToDB();
@@ -1589,9 +1603,9 @@ function viewSchedule() {
       isPublished ? div("published-banner",["📢 פורסם"]) : null
     ]),
     e("div",{style:"display:flex;gap:8px;flex-wrap:wrap"},[
-      btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset--;S.selectedCell=null;loadSchedule().then(()=>render());}),
+      btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset--;S.selectedCell=null;loadSchedule().then(()=>render());}),
       btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;S.selectedCell=null;loadSchedule().then(()=>render());}),
-      !isManager() && S.weekOffset >= 0 && !S.publishedInitial?.has(getWeekDates(S.weekOffset+1)[0]) && !S.publishedWeeks.has(getWeekDates(S.weekOffset+1)[0]) ? null : btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
+      !isManager() && S.weekOffset >= 0 && !S.publishedInitial?.has(getWeekDates(S.weekOffset+1)[0]) && !S.publishedWeeks.has(getWeekDates(S.weekOffset+1)[0]) ? null : btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
       isManager() ? btn("btn-green","⚡ שיבוץ אוטומטי",runSmartSchedule) : null,
       isManager() ? btn("btn-sm btn-sm-red","🗑️ נקה שבוע",()=>{
         if(!confirm("למחוק את כל השיבוצים של השבוע הזה?")) return;
@@ -4299,9 +4313,9 @@ function viewManagerBlocks() {
   const viewWeekStart = viewWeekDates[0];
 
   wrap.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px;align-items:center;justify-content:center"},[
-    btn("btn-sm btn-sm-gray","←",()=>{S.blocksWeekOffset--;render();}),
+    btn("btn-sm btn-sm-gray","→",()=>{S.blocksWeekOffset--;render();}),
     btn("btn-sm btn-sm-blue","השבוע",()=>{S.blocksWeekOffset=0;render();}),
-    btn("btn-sm btn-sm-gray","→",()=>{S.blocksWeekOffset++;render();}),
+    btn("btn-sm btn-sm-gray","←",()=>{S.blocksWeekOffset++;render();}),
   ]));
   wrap.appendChild(e("div",{style:"text-align:center;font-size:13px;color:#64748B;margin-bottom:16px"},
     fmtDate(viewWeekDates[0]) + " — " + fmtDate(viewWeekDates[6])));
