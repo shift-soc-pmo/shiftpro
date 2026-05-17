@@ -2901,16 +2901,23 @@ function viewEmpView() {
       e("div",{style:"font-weight:900;font-size:26px;color:#E2E8F0;margin-top:4px"}, "שלום " + (S.profile?.name||"").split(" ")[0] + " 👋"),
     ]));
     
+    // Check if published for employee
+    const weekStartMyShifts = wd[0];
+    const isPublishedMyShifts = S.publishedWeeks.has(weekStartMyShifts) || S.publishedInitial?.has(weekStartMyShifts) || S.schedPublishType?.[weekStartMyShifts];
+    const isRealEmp2 = S.profile?.role === "employee" || S.testAsEmployee;
+    
     // My shifts this week
     const myShifts = [];
-    wd.forEach(date => {
-      SHIFTS.forEach(sh => {
-        if ((S.schedule[date]?.[sh.id]||[]).includes(emp.id)) {
-          const ch = S.customHours[date+"|"+sh.id+"|"+emp.id];
-          myShifts.push({date,shift:sh,ch});
-        }
+    if (!isRealEmp2 || isPublishedMyShifts) {
+      wd.forEach(date => {
+        SHIFTS.forEach(sh => {
+          if ((S.schedule[date]?.[sh.id]||[]).includes(emp.id)) {
+            const ch = S.customHours[date+"|"+sh.id+"|"+emp.id];
+            myShifts.push({date,shift:sh,ch});
+          }
+        });
       });
-    });
+    }
 
     const card = div("card",[e("div",{style:"display:flex;justify-content:space-between;margin-bottom:12px"},[
       e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0"},"📅 "+fmtDate(wd[0])+" — "+fmtDate(wd[6])),
@@ -2948,6 +2955,28 @@ function viewEmpView() {
 
   else if (S.empViewTab==="schedule") {
     // Read-only week grid
+    // Check if schedule is published for this week
+    const weekStartRO = wd[0];
+    const isPublishedRO = S.publishedWeeks.has(weekStartRO) || S.publishedInitial?.has(weekStartRO) || S.schedPublishType?.[weekStartRO];
+    const isRealEmployee = S.profile?.role === "employee" || S.testAsEmployee;
+    
+    if (isRealEmployee && !isPublishedRO && Object.keys(S.schedule).length > 0) {
+      const card = div("card",[
+        e("div",{style:"text-align:center;padding:30px"},[
+          e("div",{style:"font-size:40px;margin-bottom:12px"},"🔒"),
+          e("div",{style:"font-weight:800;font-size:16px;color:#94A3B8"},"הסידור טרם פורסם"),
+          e("div",{style:"font-size:13px;color:#64748B;margin-top:8px"},"הסידור יהיה זמין לצפייה לאחר פרסום ראשוני או סופי")
+        ])
+      ]);
+      wrap.appendChild(card);
+      // Still show navigation arrows
+      wrap.appendChild(e("div",{style:"display:flex;gap:8px;justify-content:center;margin-top:12px"},[
+        btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset--;loadSchedule().then(()=>render());}),
+        btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;loadSchedule().then(()=>render());}),
+        btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset++;loadSchedule().then(()=>render());})
+      ]));
+    } else {
+
     const card = div("card",[e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:14px"},"📅 סידור שבועי — קריאה בלבד")]);
     const gridWrap = div("sched-wrap");
     const tbl = e("table",{class:"sched-table"});
@@ -2994,7 +3023,15 @@ function viewEmpView() {
     gridWrap.appendChild(tbl);
     card.appendChild(gridWrap);
     card.appendChild(e("div",{style:"font-size:11px;color:#475569;text-align:center;margin-top:8px"},"👁 תצוגה בלבד"));
+    
+    // Navigation arrows for past weeks
+    card.appendChild(e("div",{style:"display:flex;gap:8px;justify-content:center;margin-top:12px"},[
+      btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset--;loadSchedule().then(()=>render());}),
+      btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;loadSchedule().then(()=>render());}),
+      btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset++;loadSchedule().then(()=>render());})
+    ]));
     wrap.appendChild(card);
+    } // end else (published)
   }
 
   else if (S.empViewTab==="avail") {
