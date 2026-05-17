@@ -493,11 +493,16 @@ async function runSmartSchedule() {
     const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
     const dayShiftIds = isWeekend ? shiftIds.filter(s => s !== "afternoon" && s !== "morning2") : shiftIds;
 
-    // On weekdays, schedule night FIRST (hardest to fill), then afternoon, then mornings
-    const orderedShiftIds = isWeekend ? dayShiftIds : [...dayShiftIds].sort((a,b) => {
-      const priority = {night:0, afternoon:1, morning2:2, morning:3};
-      return (priority[a]??9) - (priority[b]??9);
-    });
+    // On weekdays, rotate shift order based on day to prevent patterns
+    const shiftOrders = [
+      ["night","afternoon","morning2","morning"],   // Sun
+      ["morning","night","afternoon","morning2"],   // Mon
+      ["afternoon","morning","morning2","night"],   // Tue
+      ["night","morning2","morning","afternoon"],   // Wed
+      ["morning","afternoon","night","morning2"],   // Thu
+    ];
+    const orderedShiftIds = isWeekend ? dayShiftIds : 
+      (shiftOrders[dayOfWeek] || dayShiftIds).filter(s => dayShiftIds.includes(s));
 
     orderedShiftIds.forEach((shiftId, shIdx) => {
       const lockedKey = dateStr+"|"+shiftId;
@@ -543,7 +548,9 @@ async function runSmartSchedule() {
       const need = target - lockedEmpIds.length;
 
       // Score available employees
-      const scored = S.employees
+      // Shuffle employees randomly before scoring
+      const shuffledEmps = [...S.employees].sort(() => Math.random() - 0.5);
+      const scored = shuffledEmps
         .filter(emp => !lockedEmpIds.includes(emp.id))
         .map(emp => {
           let score = 100;
@@ -4241,9 +4248,14 @@ function viewManagerBlocks() {
     }
 
       // Week selector
-      card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px"},[
+      card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:10px"},[
         btn("","שבוע הבא",()=>{S.availTargetOffset=1;S.availDraft={};S._draftCleared=true;render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===1?"#EF4444aa":"#334155")+";background:"+(targetOffset===1?"#EF444422":"#1E293B")+";color:"+(targetOffset===1?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"}),
         btn("","עוד שבועיים",()=>{S.availTargetOffset=2;S.availDraft={};S._draftCleared=true;render();},{style:"flex:1;padding:10px;border-radius:10px;border:1px solid "+(targetOffset===2?"#EF4444aa":"#334155")+";background:"+(targetOffset===2?"#EF444422":"#1E293B")+";color:"+(targetOffset===2?"#EF4444":"#94A3B8")+";font-family:inherit;font-size:13px;font-weight:700"})
+      ]));
+      card.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px;justify-content:center;align-items:center"},[
+        btn("btn-sm btn-sm-gray","→",()=>{S.availTargetOffset=Math.max(S.availTargetOffset-1,-4);S.availDraft={};S._draftCleared=true;render();}),
+        e("span",{style:"font-size:12px;color:#64748B;min-width:80px;text-align:center"},targetOffset<=0?"שבוע "+(targetOffset===0?"נוכחי":"קודם"):"שבוע הבא"+(targetOffset>1?" +"+targetOffset:"")),
+        btn("btn-sm btn-sm-gray","←",()=>{S.availTargetOffset++;S.availDraft={};S._draftCleared=true;render();})
       ]));
       card.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px;text-align:center"},fmtDate(targetDates[0])+" — "+fmtDate(targetDates[6])));
 
