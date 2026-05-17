@@ -821,6 +821,7 @@ async function loadAll(user) {
   }
   render();
   startAutoRefresh();
+  checkAutoReminder();
 }
 
 async function loadEmployees() {
@@ -3735,6 +3736,66 @@ function viewSettings() {
   },{style:"width:100%;margin-top:12px"}));
   wrap.appendChild(dlCard);
 
+  // Reminder to submit blocks
+  const remCard = div("card",[e("div",{class:"card-title"},"🔔 תזכורת הגשת חסימות")]);
+  remCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:14px"},"שלח תזכורת לעובדים שעדיין לא הגישו חסימות לשבוע הבא"));
+  const nextWeekDates2 = getWeekDates(1);
+  const allEmps = S.employees.filter(emp => emp.email);
+
+  remCard.appendChild(e("button",{
+    style:"width:100%;padding:14px;background:linear-gradient(135deg,#F59E0B,#F97316);color:#0F172A;border:none;border-radius:12px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer;margin-bottom:12px",
+    onclick:async()=>{
+      if(allEmps.length===0){toast("אין עובדים עם מייל","err");return;}
+      for(const emp of allEmps){
+        const dlDay2 = S.business?.deadline_day;
+        const dlTime2 = S.business?.deadline_time || "20:00";
+        const dlText = dlDay2 != null ? "\nדדליין: יום " + DAYS[dlDay2] + " בשעה " + dlTime2 : "";
+        await sendEmail("block_message",emp.email,{requesterName:"מערכת משמרת",targetDate:fmtDate(nextWeekDates2[0])+" — "+fmtDate(nextWeekDates2[6]),shiftLabel:"תזכורת הגשת חסימות",note:"שלום לכולם, נא להגיש חסימות לשבוע "+fmtDate(nextWeekDates2[0])+" — "+fmtDate(nextWeekDates2[6])+"."+dlText+"\nהיכנסו למערכת והגישו בהקדם."});
+      }
+      toast("תזכורת נשלחה ל-"+allEmps.length+" עובדים ✓");
+    }
+  },"📧 שלח תזכורת לכל העובדים במייל ("+allEmps.length+")"));
+  remCard.appendChild(e("button",{
+    style:"width:100%;padding:14px;background:#25D366;color:white;border:none;border-radius:12px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer;margin-bottom:12px",
+    onclick:()=>{
+      const dlDay3 = S.business?.deadline_day;
+      const dlTime3 = S.business?.deadline_time || "20:00";
+      const dlLine = dlDay3 != null ? "⏰ *דדליין: יום " + DAYS[dlDay3] + " בשעה " + dlTime3 + "*\n\n" : "";
+      const msg = "📢 *תזכורת הגשת חסימות*\n\n"
+        + "שלום לכולם,\n"
+        + "נא להגיש חסימות לשבוע *" + fmtDate(nextWeekDates2[0]) + " — " + fmtDate(nextWeekDates2[6]) + "*\n\n"
+        + dlLine
+        + "היכנסו למערכת והגישו בהקדם:\n"
+        + (APP_URL||"https://shiftpmosoc.com/");
+      window.open("https://wa.me/?text="+encodeURIComponent(msg));
+      toast("נפתח WhatsApp ✓");
+    }
+  },"📲 שלח תזכורת ב-WhatsApp"));
+
+  remCard.appendChild(e("div",{style:"border-top:1px solid #334155;padding-top:14px;margin-top:14px"},[
+    e("div",{style:"font-weight:700;font-size:13px;color:#E2E8F0;margin-bottom:10px"},"⏰ תזכורת אוטומטית")
+  ]));
+  if(!sd.reminderDay) sd.reminderDay = S.business?.reminder_day!=null ? String(S.business.reminder_day) : "";
+  if(!sd.reminderTime) sd.reminderTime = S.business?.reminder_time || "09:00";
+  const remDaySelect = e("select",{class:"fi",style:"flex:1",onchange:ev=>{sd.reminderDay=ev.target.value}});
+  remDaySelect.appendChild(e("option",{value:"",selected:sd.reminderDay===""?"selected":null},"ללא תזכורת אוטומטית"));
+  DAYS.forEach((d,i)=>{remDaySelect.appendChild(e("option",{value:String(i),selected:sd.reminderDay===String(i)?"selected":null},"יום "+d));});
+  remCard.appendChild(div("form-row",[
+    div("form-col",[e("label",{class:"form-label"},"יום שליחה"),remDaySelect]),
+    div("form-col",[e("label",{class:"form-label"},"שעה"),e("input",{class:"fi",type:"time",value:sd.reminderTime,oninput:ev=>{sd.reminderTime=ev.target.value}})])
+  ]));
+  remCard.appendChild(e("div",{style:"font-size:11px;color:#475569;margin-top:6px;margin-bottom:12px"},"התזכורת תישלח אוטומטית לעובדים שטרם הגישו"));
+  remCard.appendChild(btn("btn-add","שמור הגדרות תזכורת",async()=>{
+    await sb.from("businesses").update({reminder_day:sd.reminderDay===""?null:parseInt(sd.reminderDay),reminder_time:sd.reminderTime}).eq("id",S.profile.business_id);
+    S.business.reminder_day=sd.reminderDay===""?null:parseInt(sd.reminderDay);
+    S.business.reminder_time=sd.reminderTime;
+    toast("הגדרות תזכורת נשמרו ✓");render();
+  },{style:"width:100%"}));
+  if(sd.reminderDay!==""){
+    remCard.appendChild(e("div",{style:"background:#3B82F618;border:1px solid #3B82F633;border-radius:10px;padding:10px 14px;margin-top:12px;font-size:12px;color:#60A5FA"},"⏰ תזכורת כל יום "+DAYS[parseInt(sd.reminderDay)]+" בשעה "+sd.reminderTime));
+  }
+  wrap.appendChild(remCard);
+
   // Export
   const expCard = div("card",[e("div",{class:"card-title"},"📤 ייצוא סידור")]);
   expCard.appendChild(e("div",{style:"color:#64748B;font-size:13px;margin-bottom:14px"},"ייצא את הסידור השבועי הנוכחי"));
@@ -4483,14 +4544,57 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
 
+// AUTO-REMINDER CHECK
+async function checkAutoReminder() {
+  if (!isManager()) return;
+  const biz = S.business;
+  if (!biz || biz.reminder_day == null) return;
+  const now = new Date();
+  if (now.getDay() !== biz.reminder_day) return;
+  const currentTime = String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  if (currentTime < (biz.reminder_time||"09:00")) return;
+  const sentKey = "reminder_sent_"+now.getDay()+"_"+getWeekDates(1)[0];
+  if (localStorage.getItem(sentKey)) return;
+  const nextWD = getWeekDates(1);
+  const sub = S.availSubmissions.filter(s=>s.week_start===nextWD[0]).map(s=>s.employee_id);
+  const notSub = S.employees.filter(emp=>!sub.includes(emp.id)&&emp.email&&emp.role!=="admin"&&emp.role!=="manager");
+  if (notSub.length===0) return;
+  for (const emp of notSub) {
+    await sendEmail("block_message",emp.email,{requesterName:"מערכת משמרת",targetDate:fmtDate(nextWD[0])+" — "+fmtDate(nextWD[6]),shiftLabel:"תזכורת הגשת חסימות",note:"שלום, טרם הגשת חסימות לשבוע "+fmtDate(nextWD[0])+" — "+fmtDate(nextWD[6])+". נא להגיש בהקדם."});
+  }
+  localStorage.setItem(sentKey,"1");
+  console.log("🔔 Auto-reminder sent to "+notSub.length+" employees");
+}
+
 // SILENT REFRESH — reload data after actions + every 30 seconds
 let _autoRefreshTimer = null;
 let _refreshDebounce = null;
+
+function isUserBusy() {
+  if (S.selectedCell) return true;
+  if (S.constraintsEmp) return true;
+  if (S.showAddEmp) return true;
+  if (S.showAddVac) return true;
+  if (S.showPublishModal) return true;
+  if (S.showSwapModal) return true;
+  // Blocks form active (employee or manager)
+  if (S.view === "blocks" || (S.view === "empview" && S.empViewTab === "avail")) return true;
+  if (S.view === "manager_blocks" && S.mgrBlocksTab === "mine") return true;
+  // Any draft blocks selected
+  if (Object.values(S.availDraft||{}).some(Boolean)) return true;
+  // Any input/textarea/select focused
+  if (document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA" || document.activeElement.tagName === "SELECT")) return true;
+  return false;
+}
 
 function silentRefresh() {
   clearTimeout(_refreshDebounce);
   _refreshDebounce = setTimeout(async () => {
     if (!S.user || S.view === "login" || S.view === "loading") return;
+    if (isUserBusy()) {
+      console.log("🔄 Skipped refresh — user is busy");
+      return;
+    }
     try {
       await Promise.all([loadSchedule(), loadAvailSubmissions(), loadSwapRequests(), loadVacations(), loadEmployees()]);
       render();
@@ -4502,7 +4606,9 @@ function silentRefresh() {
 
 function startAutoRefresh() {
   if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
-  _autoRefreshTimer = setInterval(silentRefresh, 30000);
+  _autoRefreshTimer = setInterval(() => {
+    if (!isUserBusy()) silentRefresh();
+  }, 30000);
 }
 
 // INIT
