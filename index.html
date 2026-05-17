@@ -2011,7 +2011,7 @@ function viewEmployees() {
   }
 
   // Availability submissions
-  const subs = S.availSubmissions.filter(s => getEmp(s.employee_id));
+  const subs = S.availSubmissions.filter(s => getEmp(s.employee_id) && !s.read);
   if (subs.length > 0) {
     const subCard = div("card",[
       e("div",{style:"font-weight:700;font-size:14px;color:#F59E0B;margin-bottom:10px"},`📋 הגשות זמינות (${subs.length})`)
@@ -2028,7 +2028,11 @@ function viewEmployees() {
               return sh?e("span",{style:`font-size:10px;color:${sh.color};background:${sh.color}18;border:1px solid ${sh.color}33;border-radius:4px;padding:1px 6px;margin-left:4px`},DAYS[sl.day]+" "+sh.label):null;
             }).filter(Boolean))
           ]),
-          btn("btn-sm btn-sm-green","✓ קראתי",()=>{S.availSubmissions.splice(i,1);render();})
+          btn("btn-sm btn-sm-green","✓ קראתי",async()=>{
+            await sb.from("availability_submissions").update({read:true}).eq("id",sub.id);
+            S.availSubmissions = S.availSubmissions.filter(s=>s.id!==sub.id);
+            toast("סומן כנקרא ✓");render();
+          })
         ])
       ]));
     });
