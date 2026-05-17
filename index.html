@@ -3749,8 +3749,8 @@ function viewSettings() {
       for(const emp of allEmps){
         const dlDay2 = S.business?.deadline_day;
         const dlTime2 = S.business?.deadline_time || "20:00";
-        const dlText = dlDay2 != null ? "\nדדליין: יום " + DAYS[dlDay2] + " בשעה " + dlTime2 : "";
-        await sendEmail("block_message",emp.email,{requesterName:"מערכת משמרת",targetDate:fmtDate(nextWeekDates2[0])+" — "+fmtDate(nextWeekDates2[6]),shiftLabel:"תזכורת הגשת חסימות",note:"שלום לכולם, נא להגיש חסימות לשבוע "+fmtDate(nextWeekDates2[0])+" — "+fmtDate(nextWeekDates2[6])+"."+dlText+"\nהיכנסו למערכת והגישו בהקדם."});
+        const dlText = dlDay2 != null ? "יום " + DAYS[dlDay2] + " בשעה " + dlTime2 : "";
+        await sendEmail("reminder",emp.email,{weekLabel:fmtDate(nextWeekDates2[0])+" — "+fmtDate(nextWeekDates2[6]),deadline:dlText});
       }
       toast("תזכורת נשלחה ל-"+allEmps.length+" עובדים ✓");
     }
@@ -4560,7 +4560,10 @@ async function checkAutoReminder() {
   const notSub = S.employees.filter(emp=>!sub.includes(emp.id)&&emp.email&&emp.role!=="admin"&&emp.role!=="manager");
   if (notSub.length===0) return;
   for (const emp of notSub) {
-    await sendEmail("block_message",emp.email,{requesterName:"מערכת משמרת",targetDate:fmtDate(nextWD[0])+" — "+fmtDate(nextWD[6]),shiftLabel:"תזכורת הגשת חסימות",note:"שלום, טרם הגשת חסימות לשבוע "+fmtDate(nextWD[0])+" — "+fmtDate(nextWD[6])+". נא להגיש בהקדם."});
+    const adlDay = S.business?.deadline_day;
+    const adlTime = S.business?.deadline_time || "20:00";
+    const adlText = adlDay != null ? "יום " + DAYS[adlDay] + " בשעה " + adlTime : "";
+    await sendEmail("reminder",emp.email,{weekLabel:fmtDate(nextWD[0])+" — "+fmtDate(nextWD[6]),deadline:adlText});
   }
   localStorage.setItem(sentKey,"1");
   console.log("🔔 Auto-reminder sent to "+notSub.length+" employees");
