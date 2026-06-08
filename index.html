@@ -256,6 +256,14 @@ td{padding:9px 10px;border-bottom:1px solid #0F172A;font-size:13px;vertical-alig
   .kpi-val{font-size:18px}
   .sched-table{min-width:500px}
 }
+
+/* Toggle switch */
+.switch { position:relative; display:inline-block; width:42px; height:22px; }
+.switch input { opacity:0; width:0; height:0; }
+.switch .slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#334155; border-radius:22px; transition:.3s; }
+.switch .slider:before { position:absolute; content:""; height:16px; width:16px; right:3px; bottom:3px; background:#94A3B8; border-radius:50%; transition:.3s; }
+.switch input:checked + .slider { background:#3B82F644; }
+.switch input:checked + .slider:before { background:#3B82F6; transform:translateX(-20px); }
 </style>
 </head>
 <body>
@@ -295,6 +303,201 @@ function getShiftsForDate(date) {
 }
 const SHIFT_BY_ID = Object.fromEntries(SHIFTS.map(s=>[s.id,s]));
 const SHIFT_LABELS = Object.fromEntries(SHIFTS.map(s=>[s.id,s.label]));
+
+// ══════════════════════════════════════════════════════
+// RULE ENGINE — pluggable scheduling rules
+// Each rule receives context and returns:
+//   - blocked: true → employee cannot be assigned to this shift
+//   - score: number → added to total score (positive = prefer, negative = avoid)
+// ══════════════════════════════════════════════════════
+const RULES = {
+  // === HARD BLOCKS ===
+  vacation: {
+    name: "חופשה מאושרת",
+    enabled: true,
+    check: (ctx) => {
+      const v = ctx.S.vacations.find(v =>
+        v.employee_id === ctx.emp.id && v.status === "approved" &&
+        ctx.dateStr >= v.start_date && ctx.dateStr <= v.end_date
+      );
+      return v ? { blocked: true, reason: "חופשה" } : null;
+    }
+  },
+  exclusion: {
+    name: "השעיה זמנית",
+    enabled: true,
+    check: (ctx) => {
+      const e = ctx.emp;
+      if (e.exclude_from && e.exclude_to && ctx.dateStr >= e.exclude_from && ctx.dateStr <= e.exclude_to) {
+        return { blocked: true, reason: e.exclude_reason || "השעיה" };
+      }
+      return null;
+    }
+  },
+  activeDays: {
+    name: "ימים פעילים",
+    enabled: true,
+    check: (ctx) => {
+      const active = ctx.emp.active_days || [0,1,2,3,4,5,6];
+      if (!active.includes(ctx.dayOfWeek)) return { blocked: true, reason: "יום לא פעיל" };
+      return null;
+    }
+  },
+  allowedShifts: {
+    name: "משמרות מותרות",
+    enabled: true,
+    check: (ctx) => {
+      const allowed = ctx.emp.allowed_shifts || SHIFTS.map(s=>s.id);
+      if (!allowed.includes(ctx.shiftId)) return { blocked: true, reason: "משמרת לא מותרת" };
+      return null;
+    }
+  },
+  maxShifts: {
+    name: "מקסימום משמרות",
+    enabled: true,
+    check: (ctx) => {
+      const max = ctx.emp.max_shifts_per_week || 5;
+      if ((ctx.totalCount[ctx.emp.id] || 0) >= max) return { blocked: true, reason: "מקסימום הגיע" };
+      return null;
+    }
+  },
+  alreadyToday: {
+    name: "כבר עובד היום",
+    enabled: true,
+    check: (ctx) => {
+      const works = SHIFTS.some(s => s.id !== ctx.shiftId && (ctx.newSched[ctx.dateStr]?.[s.id]||[]).includes(ctx.emp.id));
+      return works ? { blocked: true, reason: "כבר עובד היום" } : null;
+    }
+  },
+  blockedShift: {
+    name: "חסימת עובד",
+    enabled: true,
+    check: (ctx) => {
+      const blockId = ctx.shiftId === "morning2" ? "morning" : ctx.shiftId;
+      const isBlocked = ctx.S.availSubmissions.some(s =>
+        s.employee_id === ctx.emp.id &&
+        (s.slots||[]).some(sl => sl.date === ctx.dateStr && (sl.shift === blockId || sl.shift === ctx.shiftId))
+      );
+      return isBlocked ? { blocked: true, reason: "עובד חסם" } : null;
+    }
+  },
+  
+  // === SCORING RULES ===
+  equalDistribution: {
+    name: "חלוקה שווה",
+    enabled: true,
+    check: (ctx) => {
+      const count = ctx.totalCount[ctx.emp.id] || 0;
+      let score = 0;
+      if (count >= ctx.idealShifts + 1) score -= 200;
+      if (count < ctx.idealShifts) score += (ctx.idealShifts - count) * 40;
+      else score -= (count - ctx.idealShifts) * 50;
+      score -= count * 15;
+      return { score };
+    }
+  },
+  shiftTypeVariety: {
+    name: "גיוון סוגי משמרות",
+    enabled: true,
+    check: (ctx) => {
+      const myShiftCounts = ctx.shiftTypeCount[ctx.emp.id] || {};
+      const isMorningOnly = ctx.emp.allowed_shifts && ctx.emp.allowed_shifts.length > 0 && 
+        !ctx.emp.allowed_shifts.includes("afternoon") && !ctx.emp.allowed_shifts.includes("night");
+      if (isMorningOnly) return { score: 0 };
+      
+      const morningTotal = (myShiftCounts["morning"]||0) + (myShiftCounts["morning2"]||0);
+      const afternoonTotal = myShiftCounts["afternoon"] || 0;
+      const nightTotal = myShiftCounts["night"] || 0;
+      const isMorningShift = ctx.shiftId === "morning" || ctx.shiftId === "morning2";
+      const thisTypeTotal = isMorningShift ? morningTotal : (ctx.shiftId === "afternoon" ? afternoonTotal : nightTotal);
+      const minType = Math.min(morningTotal, afternoonTotal, nightTotal);
+      const maxType = Math.max(morningTotal, afternoonTotal, nightTotal);
+      
+      let score = 0;
+      if (thisTypeTotal >= 2 && minType === 0) score -= 300;
+      score -= thisTypeTotal * 35;
+      if (thisTypeTotal === minType) score += 40;
+      if (thisTypeTotal < maxType) score += 20;
+      return { score };
+    }
+  },
+  weekendFairness: {
+    name: "חלוקת סופ״ש שווה",
+    enabled: true,
+    check: (ctx) => {
+      if (!ctx.isWeekend) return { score: 0 };
+      const wkCount = ctx.weekendCount[ctx.emp.id] || 0;
+      const totalWk = Object.values(ctx.weekendCount).reduce((a,b)=>a+b,0);
+      const avgWk = totalWk / (ctx.S.employees.length || 1);
+      let score = 0;
+      if (wkCount > avgWk + 0.5) score -= 25;
+      if (wkCount < avgWk) score += 20;
+      return { score };
+    }
+  },
+  restBetweenShifts: {
+    name: "מנוחה בין משמרות",
+    enabled: true,
+    check: (ctx) => {
+      if (ctx.dayIdx === 0) return { score: 0 };
+      const pd = ctx.weekDates[ctx.dayIdx-1];
+      const prevDate = pd.getFullYear()+"-"+String(pd.getMonth()+1).padStart(2,"0")+"-"+String(pd.getDate()).padStart(2,"0");
+      const prevShifts = ctx.newSched[prevDate] || {};
+      let score = 0;
+      if (ctx.shiftId === "morning" || ctx.shiftId === "morning2") {
+        if ((prevShifts["night"]||[]).includes(ctx.emp.id)) score -= 200;
+        if ((prevShifts["afternoon"]||[]).includes(ctx.emp.id)) score -= 40;
+      }
+      if (ctx.shiftId === "afternoon" && (prevShifts["night"]||[]).includes(ctx.emp.id)) score -= 60;
+      return { score };
+    }
+  },
+  consecutiveDays: {
+    name: "מניעת רצף ימים",
+    enabled: true,
+    check: (ctx) => {
+      if (ctx.dayIdx < 2) return { score: 0 };
+      const pd1 = ctx.weekDates[ctx.dayIdx-1];
+      const pd2 = ctx.weekDates[ctx.dayIdx-2];
+      const pd1Str = pd1.getFullYear()+"-"+String(pd1.getMonth()+1).padStart(2,"0")+"-"+String(pd1.getDate()).padStart(2,"0");
+      const pd2Str = pd2.getFullYear()+"-"+String(pd2.getMonth()+1).padStart(2,"0")+"-"+String(pd2.getDate()).padStart(2,"0");
+      const w1 = SHIFTS.some(s => (ctx.newSched[pd1Str]?.[s.id]||[]).includes(ctx.emp.id));
+      const w2 = SHIFTS.some(s => (ctx.newSched[pd2Str]?.[s.id]||[]).includes(ctx.emp.id));
+      return { score: (w1 && w2) ? -25 : 0 };
+    }
+  },
+  blockOverIdeal: {
+    name: "חסימת חריגה",
+    enabled: true,
+    check: (ctx) => {
+      const count = ctx.totalCount[ctx.emp.id] || 0;
+      if (count < ctx.idealShifts + 1) return { score: 0 };
+      const someoneBelow = ctx.S.employees.some(o => 
+        o.id !== ctx.emp.id && (ctx.totalCount[o.id]||0) < ctx.idealShifts - 1
+      );
+      if (someoneBelow) return { blocked: true, reason: "אחרים מתחת לממוצע" };
+      return { score: 0 };
+    }
+  }
+};
+
+// Run all rules and return final result
+function runRules(ctx) {
+  let totalScore = 0;
+  let blockedReason = null;
+  for (const ruleId in RULES) {
+    const rule = RULES[ruleId];
+    if (!rule.enabled) continue;
+    const result = rule.check(ctx);
+    if (!result) continue;
+    if (result.blocked) {
+      blockedReason = ruleId + ": " + (result.reason || "");
+      return { blocked: true, reason: blockedReason, score: 0 };
+    }
+    if (result.score) totalScore += result.score;
+  }
+  return { blocked: false, score: totalScore };
+}
 // Jewish Holidays 2026-2027
 const JEWISH_HOLIDAYS = {
   // 2026
@@ -765,7 +968,8 @@ async function runSmartSchedule() {
       });
     });
     if (rows.length) await sb.from("assignments").upsert(rows, {onConflict: "schedule_id,employee_id,date,shift"});
-    toast("שיבוץ אוטומטי נשמר ✓");
+    logAction("auto_schedule", {week_start:weekDates[0].toISOString().split("T")[0], count:Object.keys(newSched).length});
+  toast("שיבוץ אוטומטי נשמר ✓");
   })();
   render();
 }
@@ -830,6 +1034,39 @@ async function loadAll(user) {
   render();
   startAutoRefresh();
   checkAutoReminder();
+  setupRealtime();
+}
+
+// ══════════════════════════════════════════════════════
+// REALTIME — Supabase live subscriptions
+// ══════════════════════════════════════════════════════
+let _realtimeChannels = [];
+function setupRealtime() {
+  // Clean old channels
+  _realtimeChannels.forEach(ch => sb.removeChannel(ch));
+  _realtimeChannels = [];
+  
+  if (!S.profile?.business_id) return;
+  const bizId = S.profile.business_id;
+  
+  // Subscribe to schedule changes
+  const schedChannel = sb.channel("schedule_changes_" + bizId)
+    .on("postgres_changes", {event:"*",schema:"public",table:"schedules",filter:"business_id=eq."+bizId}, 
+      () => { if (!isUserBusy()) { loadSchedule().then(()=>render()); } })
+    .on("postgres_changes", {event:"*",schema:"public",table:"assignments"}, 
+      () => { if (!isUserBusy()) { loadSchedule().then(()=>render()); } })
+    .on("postgres_changes", {event:"*",schema:"public",table:"availability_submissions"}, 
+      () => { if (!isUserBusy()) { loadAvailSubmissions().then(()=>render()); } })
+    .on("postgres_changes", {event:"*",schema:"public",table:"swaps"}, 
+      () => { if (!isUserBusy()) { loadSwapRequests().then(()=>render()); } })
+    .on("postgres_changes", {event:"*",schema:"public",table:"vacations"}, 
+      () => { if (!isUserBusy()) { loadVacations().then(()=>render()); } })
+    .on("postgres_changes", {event:"*",schema:"public",table:"profiles",filter:"business_id=eq."+bizId}, 
+      () => { if (!isUserBusy()) { loadEmployees().then(()=>render()); } })
+    .subscribe();
+  
+  _realtimeChannels.push(schedChannel);
+  console.log("📡 Realtime subscribed for business: " + bizId);
 }
 
 async function loadEmployees() {
@@ -878,7 +1115,9 @@ async function loadSchedule() {
     .eq("week_start", weekStart).single();
 
   if (!sched) { S.schedule={}; S.currentPublishType=null; return; }
-  // Employee can only see published schedules
+  // Employee can only see published schedules (strict check)
+  const userIsEmployee = S.profile?.role === "employee";
+  if (userIsEmployee && !sched.published) { S.schedule={}; S.currentPublishType=null; return; }
   if (!isManager() && !sched.published) { S.schedule={}; S.currentPublishType=null; return; }
   if (sched.published) {
     if (sched.publish_type === "final") {
@@ -917,6 +1156,49 @@ async function loadSchedule() {
 // ══════════════════════════════════════════════════════
 const APP_URL = "https://shiftpmosoc.com/";
 
+// Email queue with rate limiting (Resend: 2/sec limit)
+const _emailQueue = [];
+let _emailProcessing = false;
+
+async function _processEmailQueue() {
+  if (_emailProcessing) return;
+  _emailProcessing = true;
+  while (_emailQueue.length > 0) {
+    const { type, toEmail, data, retries } = _emailQueue.shift();
+    try {
+      const resp = await fetch("https://zszlqoisokjgvplrcbic.supabase.co/functions/v1/rapid-action", {
+        method: "POST",
+        mode: "cors",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + SUPABASE_KEY,
+        },
+        body: JSON.stringify({ type, to: toEmail, data: { ...data, appUrl: APP_URL } })
+      });
+      
+      // Handle rate limit with retry
+      if (resp.status === 429 && retries < 3) {
+        console.warn("📧 Rate limited, retry in 2s:", toEmail);
+        _emailQueue.unshift({ type, toEmail, data, retries: retries + 1 });
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      
+      const result = await resp.json().catch(()=>({}));
+      if (resp.status >= 200 && resp.status < 300) {
+        console.log("📧 ✓ Sent:", type, "to:", toEmail);
+      } else {
+        console.warn("📧 ✗ Failed:", resp.status, result);
+      }
+    } catch (err) {
+      console.warn("📧 Network error:", err);
+    }
+    // Throttle: wait 600ms between requests (~1.6/sec, safe under 2/sec limit)
+    await new Promise(r => setTimeout(r, 600));
+  }
+  _emailProcessing = false;
+}
+
 async function sendEmail(type, toEmail, data) {
   if (!toEmail) return;
   const settingMap = {
@@ -927,28 +1209,19 @@ async function sendEmail(type, toEmail, data) {
     "swap_request": "notif_swap",
     "absence_request": "notif_swap",
     "block_message": "notif_swap",
-    "swap_decision": "notif_swap"
+    "swap_decision": "notif_swap",
+    "reminder": "notif_publish"
   };
   const settingKey = settingMap[type];
   const notifSettings = S.business?.notification_settings || {};
   if (settingKey && notifSettings[settingKey] === false) return;
 
-  try {
-    console.log("📧 Sending email:", type, "to:", toEmail);
-    const resp = await fetch("https://zszlqoisokjgvplrcbic.supabase.co/functions/v1/rapid-action", {
-      method: "POST",
-      mode: "cors",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + SUPABASE_KEY,
-      },
-      body: JSON.stringify({ type, to: toEmail, data: { ...data, appUrl: APP_URL } })
-    });
-    const result = await resp.json().catch(()=>({}));
-    console.log("📧 Email result:", resp.status, result);
-  } catch (err) {
-    console.warn("📧 Email send failed:", err);
-  }
+  // Add to queue
+  _emailQueue.push({ type, toEmail, data, retries: 0 });
+  console.log("📧 Queued:", type, "to:", toEmail, "(queue:", _emailQueue.length + ")");
+  
+  // Start processing if not already running
+  _processEmailQueue();
 }
 
 let _saveTimer = null;
@@ -1106,6 +1379,8 @@ function toggleCellEmp(date, shift, empId) {
     // Adding — check constraints
     const conflict = checkShiftConflict(date, shift, empId);
     if (conflict) { toast(conflict,"err"); return; }
+    // Snapshot for rollback
+    const beforeAdd = [...arr];
 
     // Check if employee blocked this shift
     const blockShiftId = (shift === "morning2") ? "morning" : shift;
@@ -1140,13 +1415,54 @@ async function publishWeek(type) {
   const weekStart = wd[0];
   const weekLabel = fmtDate(wd[0]) + " — " + fmtDate(wd[6]);
   const isFinal = type === "final";
+  const isPreview = type === "preview";
+
+  // Preview: don't change DB state, just send emails to managers
+  if (isPreview) {
+    const managers = S.employees.filter(e => 
+      (e.role === "admin" || e.role === "manager") && e.email && e.id !== S.user.id
+    );
+    
+    if (managers.length === 0) {
+      toast("אין מנהלים נוספים לשליחה","err");
+      S.showPublishModal = false;
+      render();
+      return;
+    }
+    
+    for (const mgr of managers) {
+      const mgrShifts = [];
+      wd.forEach(date => {
+        SHIFTS.forEach(sh => {
+          if ((S.schedule[date]?.[sh.id]||[]).includes(mgr.id)) {
+            const dt = new Date(date+"T00:00:00");
+            mgrShifts.push({ day: DAYS[dt.getDay()]+" "+dt.getDate(), label: sh.label, hours: sh.start+"–"+sh.end, color: sh.color });
+          }
+        });
+      });
+      sendEmail("schedule_initial", mgr.email, { 
+        empName: mgr.name, 
+        weekLabel: "🧪 ניסיוני — " + weekLabel, 
+        shifts: mgrShifts, 
+        isFinal: false 
+      });
+    }
+    
+    S.showPublishModal = false;
+    toast(`🧪 סידור ניסיוני נשלח ל-${managers.length} מנהלים`);
+    render();
+    if (typeof logAction === "function") {
+      logAction("schedule_preview_sent", { week_start: weekStart, recipients: managers.length });
+    }
+    return;
+  }
 
   const {data:sched} = await sb.from("schedules")
     .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
   if (sched) {
     await sb.from("schedules").update({
       published: true,
-      publish_type: type  // "initial" or "final"
+      publish_type: type
     }).eq("id", sched.id);
   }
 
@@ -1437,6 +1753,24 @@ function viewLogin() {
     isReg?"צור חשבון מנהל →":isEmpReg?"הצטרף כעובד →":"כניסה →"));
   card.appendChild(form);
 
+  // Forgot password (login mode only)
+  if (!isReg && !isEmpReg) {
+    card.appendChild(div("switch-link",[
+      e("a",{onclick:async()=>{
+        const email = prompt("הכנס את האימייל שלך לקבלת לינק איפוס סיסמה:");
+        if (!email) return;
+        const { error } = await sb.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: window.location.origin + "/?reset=true"
+        });
+        if (error) {
+          alert("שגיאה: " + error.message);
+        } else {
+          alert("✓ לינק איפוס נשלח אל " + email + "\nבדוק את תיבת המייל שלך");
+        }
+      },style:"color:#94A3B8;font-size:13px"},"שכחתי סיסמה"),
+    ]));
+  }
+
   // Switch links
   if (!isReg && !isEmpReg) {
     card.appendChild(div("switch-link",[
@@ -1599,10 +1933,29 @@ function viewHome() {
 // ── SCHEDULE ──
 function viewSchedule() {
   const wd = getWeekDates(S.weekOffset);
-  const wdDisplay = wd; // RTL table auto-shows first column (Sun) on right
+  const wdDisplay = wd;
   const weekStart = wd[0];
   const isPublished = S.publishedWeeks.has(weekStart);
+  const isInitial = S.publishedInitial?.has(weekStart);
+  const hasPublish = isPublished || isInitial || S.schedPublishType?.[weekStart];
   const wrap = e("div");
+
+  // Employee: block unpublished schedules
+  if (!isManager() && !hasPublish) {
+    wrap.appendChild(div("card",[
+      e("div",{style:"text-align:center;padding:40px"},[
+        e("div",{style:"font-size:48px;margin-bottom:12px"},"🔒"),
+        e("div",{style:"font-weight:800;font-size:18px;color:#94A3B8;margin-bottom:8px"},"הסידור טרם פורסם"),
+        e("div",{style:"font-size:13px;color:#64748B"},"הסידור יהיה זמין לצפייה לאחר פרסום"),
+        e("div",{style:"display:flex;gap:8px;justify-content:center;margin-top:20px"},[
+          btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset--;loadSchedule().then(()=>render());}),
+          btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;loadSchedule().then(()=>render());}),
+          btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset++;loadSchedule().then(()=>render());})
+        ])
+      ])
+    ]));
+    return wrap;
+  }
 
   // Header
   const hdr = div("section-header",[
@@ -1734,7 +2087,21 @@ function viewSchedule() {
           const ch = S.customHours[date+"|"+shift.id+"|"+empId];
           const isFilteredOut = S.schedFilter && S.schedFilter !== empId;
           const isHighlighted = S.schedFilter && S.schedFilter === empId;
-          const chip = e("div",{class:"emp-chip",style:`background:${isHighlighted?col+"44":col+"22"};border:${isHighlighted?"2px":"1px"} solid ${isHighlighted?col:col+"44"};color:${col};opacity:${isFilteredOut?"0.2":"1"};${isHighlighted?"box-shadow:0 0 8px "+col+"44;":""}`},[
+          const chipProps = {class:"emp-chip",
+            style:`background:${isHighlighted?col+"44":col+"22"};border:${isHighlighted?"2px":"1px"} solid ${isHighlighted?col:col+"44"};color:${col};opacity:${isFilteredOut?"0.2":"1"};${isHighlighted?"box-shadow:0 0 8px "+col+"44;":""};cursor:${isManager()?"grab":"default"}`
+          };
+          // Drag & drop only on desktop (not touch devices)
+          const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+          if (isManager() && !isTouchDevice) {
+            chipProps.draggable = "true";
+            chipProps.ondragstart = (ev) => {
+              ev.dataTransfer.setData("text/plain", JSON.stringify({empId:empId, fromDate:date, fromShift:shiftId}));
+              ev.dataTransfer.effectAllowed = "move";
+              setTimeout(()=>ev.target.style.opacity="0.3", 0);
+            };
+            chipProps.ondragend = (ev) => { ev.target.style.opacity=""; };
+          }
+          const chip = e("div",chipProps,[
             e("span",{style:`width:6px;height:6px;border-radius:50%;background:${col};flex-shrink:0`},""),
             e("span",{},emp.name.split(" ")[0]),
             ch ? e("span",{style:"font-size:9px;opacity:0.7"},` ${ch.start}-${ch.end}`) : null,
@@ -1987,7 +2354,13 @@ function viewEmployees() {
       const tr = e("tr",[
         e("td",{style:"font-weight:700"},[
           e("span",{style:`display:inline-block;width:8px;height:8px;border-radius:50%;background:${col};margin-left:8px`},""),
-          emp.name
+          e("span",{style:"cursor:pointer;border-bottom:1px dashed transparent;transition:all 0.2s",
+            onmouseover:(ev)=>{ev.target.style.borderBottomColor="#3B82F6";ev.target.style.color="#60A5FA";},
+            onmouseout:(ev)=>{ev.target.style.borderBottomColor="transparent";ev.target.style.color="";},
+            onclick:()=>renameEmployee(emp),
+            title:"לחץ לעריכת השם"
+          }, emp.name),
+          e("span",{style:"font-size:10px;color:#475569;margin-right:4px"},"✏️")
         ]),
         e("td",{style:"color:#94A3B8"},emp.email||"—"),
         e("td",{style:"color:#64748B"},emp.id_number||"—"),
@@ -3497,6 +3870,61 @@ function viewConstraintsModal() {
 }
 
 // ── PUBLISH MODAL ──
+function viewExportModal() {
+  const exportType = S.showExportModal; // "pdf" or "csv"
+  const currentOffset = S.weekOffset;
+  // Show options: -2, -1, 0, +1, +2 weeks
+  const offsets = [-3, -2, -1, 0, 1, 2];
+  
+  return div("modal-bg",[
+    div("modal",[
+      div("modal-header",[
+        div("modal-title",[`📤 ייצוא ${exportType === "pdf" ? "PDF" : "CSV"} — בחר שבוע`]),
+        btn("modal-close","✕",()=>{S.showExportModal=null;render();})
+      ]),
+      e("div",{style:"color:#64748B;font-size:13px;margin-bottom:16px"}, "אפשר לייצא גם סידור שעוד עובדים עליו"),
+      
+      e("div",{style:"display:flex;flex-direction:column;gap:8px;margin-bottom:16px"},
+        offsets.map(off => {
+          const wd = getWeekDates(off);
+          const isCurrent = off === currentOffset;
+          const isPast = off < 0;
+          const isFuture = off > 0;
+          let label = "";
+          if (off === 0) label = "השבוע הזה";
+          else if (off === -1) label = "שבוע שעבר";
+          else if (off === 1) label = "שבוע הבא";
+          else if (off < 0) label = `לפני ${Math.abs(off)} שבועות`;
+          else label = `עוד ${off} שבועות`;
+          
+          return e("button",{
+            style:`width:100%;text-align:right;padding:14px;background:${isCurrent?"#3B82F622":"#0F172A"};border:1px solid ${isCurrent?"#3B82F6":"#334155"};border-radius:12px;color:#E2E8F0;font-family:inherit;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;align-items:center;transition:all 0.15s`,
+            onmouseover:(ev)=>{ev.currentTarget.style.borderColor="#60A5FA";ev.currentTarget.style.background="#3B82F611";},
+            onmouseout:(ev)=>{ev.currentTarget.style.borderColor=isCurrent?"#3B82F6":"#334155";ev.currentTarget.style.background=isCurrent?"#3B82F622":"#0F172A";},
+            onclick:async()=>{
+              S.showExportModal = null;
+              render();
+              if (exportType === "pdf") await exportSchedulePDF(off);
+              else await exportScheduleCSV(off);
+            }
+          },[
+            e("div",{},[
+              e("div",{style:"font-weight:700;margin-bottom:2px"},[
+                label,
+                isCurrent ? e("span",{style:"font-size:10px;background:#3B82F644;color:#60A5FA;border-radius:4px;padding:2px 6px;margin-right:6px"},"נוכחי") : null
+              ]),
+              e("div",{style:"font-size:11px;color:#64748B"},`${fmtDate(wd[0])} — ${fmtDate(wd[6])}`)
+            ]),
+            e("span",{style:"font-size:18px;color:#64748B"},"←")
+          ]);
+        })
+      ),
+      
+      btn("btn-sm btn-sm-gray","ביטול",()=>{S.showExportModal=null;render();},{style:"width:100%"})
+    ])
+  ],{onclick:ev=>{if(ev.target.classList.contains("modal-bg")){S.showExportModal=null;render();}}});
+}
+
 function viewPublishModal() {
   const wd = getWeekDates(S.weekOffset);
   const weekStart = wd[0];
@@ -3512,6 +3940,18 @@ function viewPublishModal() {
       ]),
       e("div",{style:"color:#64748B;font-size:13px;margin-bottom:16px"},
         `שבוע ${fmtDate(wd[0])} — ${fmtDate(wd[6])}`),
+
+      // Preview card (managers only)
+      e("div",{style:"background:#A855F708;border:1px solid #A855F744;border-radius:14px;padding:16px;margin-bottom:12px"},[
+        e("div",{style:"display:flex;align-items:center;gap:10px;margin-bottom:8px"},[
+          e("span",{style:"font-size:22px"},"🧪"),
+          e("div",{},[
+            e("div",{style:"font-weight:800;font-size:15px;color:#E2E8F0"},"שליחה ניסיונית"),
+            e("div",{style:"font-size:12px;color:#64748B"},"רק למנהלים — לבדיקה לפני פרסום רשמי")
+          ])
+        ]),
+        btn("btn-purple","🧪 שלח למנהלים לבדיקה",()=>publishWeek("preview"),{style:"width:100%"})
+      ]),
 
       // Initial publish card
       e("div",{style:`background:#1E3A5F22;border:1px solid ${isInitialPublished?"#3B82F6":"#334155"};border-radius:14px;padding:16px;margin-bottom:12px`},[
@@ -3548,11 +3988,62 @@ function viewPublishModal() {
 }
 
 // ══════════════════════════════════════════════════════
+// MEMOIZATION — cache expensive lookups
+// ══════════════════════════════════════════════════════
+const _memoCache = new Map();
+const _memoVersion = { current: 0 };
+// Invalidate memo cache when data changes
+function invalidateMemo() { _memoVersion.current++; _memoCache.clear(); }
+
+function memoize(key, fn) {
+  const fullKey = key + "::" + _memoVersion.current;
+  if (_memoCache.has(fullKey)) return _memoCache.get(fullKey);
+  const result = fn();
+  _memoCache.set(fullKey, result);
+  // Prevent memory leak
+  if (_memoCache.size > 200) {
+    const firstKey = _memoCache.keys().next().value;
+    _memoCache.delete(firstKey);
+  }
+  return result;
+}
+
+// Get employee by ID — heavily used, worth caching
+const _empByIdCache = {};
+function getEmp(id) {
+  if (_empByIdCache.id !== _memoVersion.current) {
+    _empByIdCache.id = _memoVersion.current;
+    _empByIdCache.map = Object.fromEntries((S.employees||[]).map(e=>[e.id,e]));
+  }
+  return _empByIdCache.map[id];
+}
+
+// ══════════════════════════════════════════════════════
 // EXPORT
 // ══════════════════════════════════════════════════════
-function exportSchedulePDF() {
-  const wd = getWeekDates(S.weekOffset);
+async function exportSchedulePDF(weekOffsetParam) {
+  const offset = weekOffsetParam != null ? weekOffsetParam : S.weekOffset;
+  const wd = getWeekDates(offset);
+  const weekStart = wd[0];
   const weekLabel = fmtDate(wd[0]) + " — " + fmtDate(wd[6]);
+  
+  // If exporting a different week than current, load that week's schedule first
+  let scheduleData = S.schedule;
+  if (offset !== S.weekOffset) {
+    const { data: sched } = await sb.from("schedules")
+      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
+    if (sched) {
+      const { data: assigns } = await sb.from("assignments").select("*").eq("schedule_id", sched.id);
+      scheduleData = {};
+      (assigns || []).forEach(a => {
+        if (!scheduleData[a.date]) scheduleData[a.date] = {};
+        if (!scheduleData[a.date][a.shift]) scheduleData[a.date][a.shift] = [];
+        scheduleData[a.date][a.shift].push(a.employee_id);
+      });
+    } else {
+      scheduleData = {};
+    }
+  }
 
   let html = `<!DOCTYPE html><html dir="rtl" lang="he">
 <head><meta charset="UTF-8">
@@ -3587,7 +4078,7 @@ function exportSchedulePDF() {
   SHIFTS.forEach(sh => {
     html += `<tr><td class="${sh.id}">${sh.label}<br><small>${sh.start}–${sh.end}</small></td>`;
     wd.forEach(date => {
-      const empIds = S.schedule[date]?.[sh.id]||[];
+      const empIds = scheduleData[date]?.[sh.id]||[];
       html += "<td>";
       if (empIds.length === 0) {
         html += '<span class="empty">—</span>';
@@ -3615,13 +4106,34 @@ function exportSchedulePDF() {
   toast("פותח לייצוא PDF ✓");
 }
 
-function exportScheduleCSV() {
-  const wd = getWeekDates(S.weekOffset);
+async function exportScheduleCSV(weekOffsetParam) {
+  const offset = weekOffsetParam != null ? weekOffsetParam : S.weekOffset;
+  const wd = getWeekDates(offset);
+  const weekStart = wd[0];
+  
+  // Load schedule data for the selected week
+  let scheduleData = S.schedule;
+  if (offset !== S.weekOffset) {
+    const { data: sched } = await sb.from("schedules")
+      .select("id").eq("business_id", S.profile.business_id).eq("week_start", weekStart).single();
+    if (sched) {
+      const { data: assigns } = await sb.from("assignments").select("*").eq("schedule_id", sched.id);
+      scheduleData = {};
+      (assigns || []).forEach(a => {
+        if (!scheduleData[a.date]) scheduleData[a.date] = {};
+        if (!scheduleData[a.date][a.shift]) scheduleData[a.date][a.shift] = [];
+        scheduleData[a.date][a.shift].push(a.employee_id);
+      });
+    } else {
+      scheduleData = {};
+    }
+  }
+  
   let csv = "\u05de\u05e9\u05de\u05e8\u05ea,\u05e9\u05e2\u05d5\u05ea,"+wd.map(d=>{const dt=new Date(d+"T00:00:00");return DAYS[dt.getDay()]+" "+dt.getDate();}).join(",")+String.fromCharCode(10);
   SHIFTS.forEach(sh => {
     const row = [sh.label, sh.start+"–"+sh.end];
     wd.forEach(date => {
-      const empIds = S.schedule[date]?.[sh.id]||[];
+      const empIds = scheduleData[date]?.[sh.id]||[];
       row.push(empIds.map(id=>getEmp(id)?.name||"?").join(" + ")||"—");
     });
     csv += row.map(v=>"\""+v+"\"").join(",") + String.fromCharCode(10);
@@ -3629,7 +4141,7 @@ function exportScheduleCSV() {
   const blob = new Blob(["﻿"+csv], {type:"text/csv;charset=utf-8"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href=url; a.download=`seder_avoda_${getWeekDates(S.weekOffset)[0]}.csv`;
+  a.href=url; a.download=`seder_avoda_${weekStart}.csv`;
   a.click(); URL.revokeObjectURL(url);
   toast("קובץ CSV הורד ✓");
 }
@@ -3845,12 +4357,41 @@ function viewSettings() {
   }
   wrap.appendChild(remCard);
 
+
+
+  // Rule Engine Settings
+  const rulesCard = div("card",[e("div",{class:"card-title"},"⚙️ חוקי שיבוץ אוטומטי")]);
+  rulesCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:14px"},"הפעל/כבה חוקים לפי הצורך. שינויים שמורים בדפדפן."));
+  
+  const savedRules = JSON.parse(localStorage.getItem("rules_enabled") || "{}");
+  // Apply saved state
+  for (const id in RULES) {
+    if (savedRules[id] === false) RULES[id].enabled = false;
+  }
+  
+  Object.entries(RULES).forEach(([id, rule]) => {
+    const row = e("div",{style:"display:flex;justify-content:space-between;align-items:center;padding:10px;background:#0F172A;border-radius:8px;margin-bottom:6px;border:1px solid #1E293B"},[
+      e("div",{style:"font-size:13px;font-weight:600;color:#E2E8F0"},rule.name),
+      e("label",{class:"switch",style:"cursor:pointer"},[
+        e("input",{type:"checkbox",checked:rule.enabled?"checked":null,onchange:(ev)=>{
+          RULES[id].enabled = ev.target.checked;
+          savedRules[id] = ev.target.checked;
+          localStorage.setItem("rules_enabled", JSON.stringify(savedRules));
+        }}),
+        e("span",{class:"slider"})
+      ])
+    ]);
+    rulesCard.appendChild(row);
+  });
+  rulesCard.appendChild(e("div",{style:"font-size:11px;color:#475569;margin-top:10px;text-align:center"},"💡 חוקים מסומנים בכחול = חוקי חסימה (קריטיים). שינויים יכולים להוביל לסידור לא תקין."));
+  wrap.appendChild(rulesCard);
+
   // Export
   const expCard = div("card",[e("div",{class:"card-title"},"📤 ייצוא סידור")]);
   expCard.appendChild(e("div",{style:"color:#64748B;font-size:13px;margin-bottom:14px"},"ייצא את הסידור השבועי הנוכחי"));
   expCard.appendChild(div("form-actions",[
-    btn("btn-green","🖨️ ייצוא PDF / הדפסה",exportSchedulePDF,{style:"flex:1"}),
-    btn("btn-sm btn-sm-blue","📊 ייצוא CSV",exportScheduleCSV,{style:"flex:1"})
+    btn("btn-green","🖨️ ייצוא PDF / הדפסה",()=>{S.showExportModal="pdf";render();},{style:"flex:1"}),
+    btn("btn-sm btn-sm-blue","📊 ייצוא CSV",()=>{S.showExportModal="csv";render();},{style:"flex:1"})
   ]));
   wrap.appendChild(expCard);
 
@@ -4506,6 +5047,44 @@ function viewManagerBlocks() {
 // ══════════════════════════════════════════════════════
 // RENDER
 // ══════════════════════════════════════════════════════
+let _touchStartX = null, _touchStartY = null;
+function setupSwipeGestures() {
+  document.removeEventListener("touchstart", _onTouchStart);
+  document.removeEventListener("touchend", _onTouchEnd);
+  document.addEventListener("touchstart", _onTouchStart, {passive:true});
+  document.addEventListener("touchend", _onTouchEnd, {passive:true});
+}
+function _onTouchStart(e) {
+  if (e.touches.length !== 1) return;
+  _touchStartX = e.touches[0].clientX;
+  _touchStartY = e.touches[0].clientY;
+}
+function _onTouchEnd(e) {
+  if (_touchStartX == null) return;
+  const dx = e.changedTouches[0].clientX - _touchStartX;
+  const dy = e.changedTouches[0].clientY - _touchStartY;
+  _touchStartX = null;
+  // Must be a horizontal swipe (more X than Y, more than 80px)
+  if (Math.abs(dx) < 80 || Math.abs(dy) > 50) return;
+  // Don't trigger on inputs or buttons
+  const t = e.target;
+  if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON" || t.tagName === "SELECT") return;
+  if (t.closest(".modal,.bottom-sheet,.emp-chip,.shift-cell")) return;
+  
+  // Only swipe in schedule views
+  if (S.view === "schedule") {
+    // RTL: swipe right (positive dx) = next week, swipe left = prev week
+    if (dx > 0) { S.weekOffset++; loadSchedule().then(()=>render()); }
+    else { S.weekOffset--; loadSchedule().then(()=>render()); }
+  } else if (S.view === "calendar") {
+    if (dx > 0) { S.monthOffset++; render(); }
+    else { S.monthOffset--; render(); }
+  } else if (S.view === "empview" && S.empViewTab === "schedule") {
+    if (dx > 0) { S.weekOffset++; loadSchedule().then(()=>render()); }
+    else { S.weekOffset--; loadSchedule().then(()=>render()); }
+  }
+}
+
 function render() {
   const app = $("app");
   app.innerHTML = "";
@@ -4539,6 +5118,7 @@ function render() {
     // Modals
     if(S.constraintsEmp) app.appendChild(viewConstraintsModal());
     if(S.showPublishModal) app.appendChild(viewPublishModal());
+  if(S.showExportModal) app.appendChild(viewExportModal());
   }
 
   // Mobile bottom nav
@@ -4602,10 +5182,13 @@ if ("serviceWorker" in navigator) {
 async function checkAutoReminder() {
   if (!isManager()) return;
   const biz = S.business;
-  if (!biz || biz.reminder_day == null) return;
+  if (!biz) return;
   const now = new Date();
-  if (now.getDay() !== biz.reminder_day) return;
   const currentTime = String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  
+  // ─── Auto-reminder for blocks submission ───
+  if (biz.reminder_day == null) return;
+  if (now.getDay() !== biz.reminder_day) return;
   if (currentTime < (biz.reminder_time||"09:00")) return;
   const sentKey = "reminder_sent_"+now.getDay()+"_"+getWeekDates(1)[0];
   if (localStorage.getItem(sentKey)) return;
@@ -4633,6 +5216,7 @@ function isUserBusy() {
   if (S.showAddEmp) return true;
   if (S.showAddVac) return true;
   if (S.showPublishModal) return true;
+  if (S.showExportModal) return true;
   if (S.showSwapModal) return true;
   // Blocks form active (employee or manager)
   if (S.view === "blocks" || (S.view === "empview" && S.empViewTab === "avail")) return true;
