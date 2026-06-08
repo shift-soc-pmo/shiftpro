@@ -665,6 +665,7 @@ async function runSmartSchedule() {
           return { emp, score };
         })
         .filter(Boolean)
+        .filter(x => x.score >= 0)
         .sort((a,b) => {
           const diff = b.score - a.score;
           if (Math.abs(diff) < 5) return Math.random() - 0.5; // random tiebreaker
@@ -1097,6 +1098,21 @@ function toggleCellEmp(date, shift, empId) {
     // Adding — check constraints
     const conflict = checkShiftConflict(date, shift, empId);
     if (conflict) { toast(conflict,"err"); return; }
+
+    // Check if employee blocked this shift — require confirmation
+    const blockedShiftId = (shift === "morning2") ? "morning" : shift;
+    const hasBlock = (S.availSubmissions||[]).some(s =>
+      s.employee_id === empId &&
+      (s.slots||[]).some(sl => {
+        const slShift = sl.shift;
+        if (sl.date && sl.date === date) return slShift === blockedShiftId || slShift === shift;
+        return false;
+      })
+    );
+    if (hasBlock) {
+      const emp = getEmp(empId);
+      if (!confirm(`${emp?.name||"עובד"} חסם משמרת זו.\nלשבץ בכל זאת?`)) return;
+    }
 
     if (!arr.includes(empId)) arr.push(empId);
   }
@@ -1589,9 +1605,9 @@ function viewSchedule() {
       isPublished ? div("published-banner",["📢 פורסם"]) : null
     ]),
     e("div",{style:"display:flex;gap:8px;flex-wrap:wrap"},[
-      btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset--;S.selectedCell=null;loadSchedule().then(()=>render());}),
+      btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset--;S.selectedCell=null;loadSchedule().then(()=>render());}),
       btn("btn-sm btn-sm-blue","השבוע",()=>{S.weekOffset=0;S.selectedCell=null;loadSchedule().then(()=>render());}),
-      !isManager() && S.weekOffset >= 0 && !S.publishedInitial?.has(getWeekDates(S.weekOffset+1)[0]) && !S.publishedWeeks.has(getWeekDates(S.weekOffset+1)[0]) ? null : btn("btn-sm btn-sm-gray","→",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
+      !isManager() && S.weekOffset >= 0 && !S.publishedInitial?.has(getWeekDates(S.weekOffset+1)[0]) && !S.publishedWeeks.has(getWeekDates(S.weekOffset+1)[0]) ? null : btn("btn-sm btn-sm-gray","←",()=>{S.weekOffset++;S.selectedCell=null;loadSchedule().then(()=>render());}),
       isManager() ? btn("btn-green","⚡ שיבוץ אוטומטי",runSmartSchedule) : null,
       isManager() ? btn("btn-sm btn-sm-red","🗑️ נקה שבוע",()=>{
         if(!confirm("למחוק את כל השיבוצים של השבוע הזה?")) return;
@@ -1751,6 +1767,11 @@ function viewCellEditor(date, shiftId) {
     const onVac = S.vacations.some(v=>v.employee_id===emp.id&&v.status==="approved"&&date>=v.start_date&&date<=v.end_date);
     const isAssigned = assignedIds.includes(emp.id);
     const locked = S.lockedSlots[date+"|"+shiftId]?.has(emp.id);
+    const blockedShiftIdCell = (shiftId === "morning2") ? "morning" : shiftId;
+    const hasBlockCell = (S.availSubmissions||[]).some(s =>
+      s.employee_id === emp.id &&
+      (s.slots||[]).some(sl => sl.date === date && (sl.shift === blockedShiftIdCell || sl.shift === shiftId))
+    );
 
     const chip = e("button",{
       class:"cell-emp-btn"+(isAssigned?" assigned":""),
@@ -1761,6 +1782,7 @@ function viewCellEditor(date, shiftId) {
       e("span",{style:`width:7px;height:7px;border-radius:50%;background:${col}`},""),
       e("span",{},emp.name),
       onVac ? e("span",{},"🌴") : null,
+      hasBlockCell && !isAssigned ? e("span",{title:"חסם משמרת זו"},"🚫") : null,
       locked ? e("span",{},"🔒") : null
     ]);
     btnWrap.appendChild(chip);
@@ -4299,9 +4321,9 @@ function viewManagerBlocks() {
   const viewWeekStart = viewWeekDates[0];
 
   wrap.appendChild(e("div",{style:"display:flex;gap:6px;margin-bottom:14px;align-items:center;justify-content:center"},[
-    btn("btn-sm btn-sm-gray","←",()=>{S.blocksWeekOffset--;render();}),
+    btn("btn-sm btn-sm-gray","→",()=>{S.blocksWeekOffset--;render();}),
     btn("btn-sm btn-sm-blue","השבוע",()=>{S.blocksWeekOffset=0;render();}),
-    btn("btn-sm btn-sm-gray","→",()=>{S.blocksWeekOffset++;render();}),
+    btn("btn-sm btn-sm-gray","←",()=>{S.blocksWeekOffset++;render();}),
   ]));
   wrap.appendChild(e("div",{style:"text-align:center;font-size:13px;color:#64748B;margin-bottom:16px"},
     fmtDate(viewWeekDates[0]) + " — " + fmtDate(viewWeekDates[6])));
