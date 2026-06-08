@@ -2135,8 +2135,11 @@ function viewSchedule() {
           ev.currentTarget.style.outline = "2px dashed " + shift.color;
         };
         tdProps.ondragleave = (ev) => {
-          ev.currentTarget.style.background = "";
-          ev.currentTarget.style.outline = "";
+          // Only clear if leaving the cell entirely (not entering child element)
+          if (!ev.currentTarget.contains(ev.relatedTarget)) {
+            ev.currentTarget.style.background = "";
+            ev.currentTarget.style.outline = "";
+          }
         };
         tdProps.ondrop = async (ev) => {
           ev.preventDefault();
@@ -2208,9 +2211,10 @@ function viewSchedule() {
           if (isManager() && !isTouchDevice) {
             chipProps.draggable = "true";
             chipProps.ondragstart = (ev) => {
-              ev.dataTransfer.setData("text/plain", JSON.stringify({empId:empId, fromDate:date, fromShift:shiftId}));
+              ev.dataTransfer.setData("text/plain", JSON.stringify({empId:empId, fromDate:date, fromShift:shift.id}));
               ev.dataTransfer.effectAllowed = "move";
-              setTimeout(()=>ev.target.style.opacity="0.3", 0);
+              ev.dataTransfer.dropEffect = "move";
+              setTimeout(()=>{if(ev.target.style)ev.target.style.opacity="0.3";}, 0);
             };
             chipProps.ondragend = (ev) => { ev.target.style.opacity=""; };
           }
