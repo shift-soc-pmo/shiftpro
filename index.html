@@ -268,6 +268,13 @@ const SUPABASE_URL = "https://zszlqoisokjgvplrcbic.supabase.co";
 const SUPABASE_KEY = "sb_publishable_b6ZEtYrgGIQT8WxkahGzZg_iHTYMasi";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Disable verbose console output in production (non-localhost)
+if (location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+  console.log = () => {};
+  console.info = () => {};
+  // keep warn/error for real issues
+}
+
 // ══════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════
@@ -781,20 +788,10 @@ function isAdmin() {
 }
 
 function generateInviteCode(businessId) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  let code = "";
-  let h1 = 0, h2 = 5381;
-  for (let i = 0; i < businessId.length; i++) {
-    h1 = ((h1 << 5) - h1) + businessId.charCodeAt(i);
-    h1 = h1 & h1;
-    h2 = ((h2 << 5) + h2) + businessId.charCodeAt(i);
-    h2 = h2 & h2;
-  }
-  for (let i = 0; i < 12; i++) {
-    const seed = Math.abs((h1 * (i+1) * 31 + h2 * (i+3) * 17 + i * 53) % chars.length);
-    code += chars[seed];
-  }
-  return code;
+  // Legacy: return stored code from S.business if available
+  if (S.business?.invite_code) return S.business.invite_code;
+  // Fallback for cases where business not yet loaded — should not normally be called
+  return "??????";
 }
 
 async function loadAll(user) {
@@ -808,7 +805,7 @@ async function loadAll(user) {
   
   S.profile = profile;
   S.business = profile.business;
-  S.inviteCode = profile.business_id ? generateInviteCode(profile.business_id) : null;
+  S.inviteCode = profile.business?.invite_code || null;
 
   await loadEmployees();
   await Promise.all([loadVacations(), loadSwapRequests(), loadAvailSubmissions(), loadSchedule()]);
@@ -1018,8 +1015,8 @@ async function handleRegister(name, businessName, email, password, inviteCode) {
   if (inviteCode) {
     // Validate invite code BEFORE creating user
     // Use service role or public access to check businesses
-    const {data:businesses} = await sb.from("businesses").select("id,name");
-    const matchBiz = (businesses||[]).find(b => generateInviteCode(b.id) === inviteCode.trim());
+    const {data:businesses} = await sb.from("businesses").select("id,name,invite_code");
+    const matchBiz = (businesses||[]).find(b => b.invite_code === inviteCode.trim());
     if (!matchBiz) throw new Error("קוד הזמנה לא תקין");
     
     // Now create user
@@ -1997,6 +1994,11 @@ function viewEmployees() {
             style:"background:#0F172A;border:1px solid #334155;border-radius:6px;color:#94A3B8;font-size:11px;padding:3px 6px;font-family:inherit;margin-left:4px",
             onchange: async (ev) => {
               const newRole = ev.target.value;
+              const roleLabel = newRole === "admin" ? "מנהל" : "עובד";
+              if (!confirm(`לשנות את תפקיד ${emp.name} ל${roleLabel}?`)) {
+                ev.target.value = (emp.role === "admin" || emp.role === "manager") ? "admin" : "employee";
+                return;
+              }
               await sb.from("profiles").update({role:newRole}).eq("id",emp.id);
               await loadEmployees();
               toast("תפקיד עודכן ✓");
