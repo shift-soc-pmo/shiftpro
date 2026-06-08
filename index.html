@@ -5101,8 +5101,7 @@ function viewManagerBlocks() {
     return wrap;
   }
 
-  // Flatten slots into individual blocks, grouped b
-y employee
+  // Flatten slots into individual blocks, grouped by employee
   const byEmp = {};
   weekSubs.forEach(sub => {
     if (!byEmp[sub.employee_id]) byEmp[sub.employee_id] = [];
