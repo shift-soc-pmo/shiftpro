@@ -449,8 +449,11 @@ async function runSmartSchedule() {
   const totalCount = {};
   const shiftTypeCount = {};
 
+  // Shuffle employees to prevent ordering bias across runs
+  const shuffledEmployees = [...S.employees].sort(() => Math.random() - 0.5);
+
   const weekendCount = {};
-  S.employees.forEach(emp => {
+  shuffledEmployees.forEach(emp => {
     totalCount[emp.id] = 0;
     shiftTypeCount[emp.id] = {};
     weekendCount[emp.id] = 0;
@@ -472,7 +475,7 @@ async function runSmartSchedule() {
     });
     return total;
   })();
-  const availableEmps = S.employees.filter(emp => {
+  const availableEmps = shuffledEmployees.filter(emp => {
     if (emp.exclude_from && emp.exclude_to) {
       const start = emp.exclude_from, end = emp.exclude_to;
       const weekStart = getWeekDates(S.weekOffset)[0];
@@ -515,7 +518,7 @@ async function runSmartSchedule() {
       });
 
       // Fixed schedule — assign employees with fixed_shifts FIRST
-      S.employees.forEach(emp => {
+      shuffledEmployees.forEach(emp => {
         if (!emp.fixed_shifts) return;
         const fixedKey = dayOfWeek + "_" + shiftId;
         if (!emp.fixed_shifts[fixedKey]) return;
@@ -549,7 +552,7 @@ async function runSmartSchedule() {
       const need = target - lockedEmpIds.length;
 
       // Score available employees
-      const scored = S.employees
+      const scored = shuffledEmployees
         .filter(emp => !lockedEmpIds.includes(emp.id))
         .map(emp => {
           let score = 100;
@@ -592,13 +595,18 @@ async function runSmartSchedule() {
           const perLimit = emp.max_per_shift?.[shiftId];
           if (perLimit != null && (shiftTypeCount[emp.id][shiftId]||0) >= perLimit) return null;
 
-          // Check if employee is allowed on this shift type
-          const allowedShifts = emp.preferred_shifts;
-          if (allowedShifts && allowedShifts.length > 0 && !allowedShifts.includes(shiftId)) return null;
-
           // Scoring
 
-          if (preferred.includes(shiftId)) score += 30;
+          // 1. Shift-type diversity — heavily penalize repeating same shift type this week
+          const sameTypeCount = shiftTypeCount[emp.id][shiftId] || 0;
+          score -= sameTypeCount * 50;
+
+          // 2. Total fairness — strongly prefer under-assigned employees
+          const totalThisEmp = totalCount[emp.id] || 0;
+          score += Math.max(0, idealShifts - totalThisEmp) * 35;
+
+          // 3. Soft preferences (bonus only, not hard filter)
+          if (preferred.includes(shiftId)) score += 15;
           if (dayConstraints[dayName]?.[shiftId] === 1) score += 20;
 
           // Block submissions — if employee blocked this shift, skip them
@@ -675,7 +683,7 @@ async function runSmartSchedule() {
         .filter(x => x.score >= 0)
         .sort((a,b) => {
           const diff = b.score - a.score;
-          if (Math.abs(diff) < 5) return Math.random() - 0.5; // random tiebreaker
+          if (Math.abs(diff) < 20) return Math.random() - 0.5; // wider random tiebreaker for fairness
           return diff;
         });
 
@@ -690,7 +698,7 @@ async function runSmartSchedule() {
   });
 
   // Balance pass — if employees are still under-assigned, add to afternoon shifts
-  const underAssigned = S.employees.filter(emp => {
+  const underAssigned = shuffledEmployees.filter(emp => {
     const count = totalCount[emp.id] || 0;
     return count < idealShifts - 1 && count < (emp.max_shifts_per_week || 5);
   });
