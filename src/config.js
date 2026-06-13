@@ -1,8 +1,8 @@
 // ══════════════════════════════════════════════════════
 // SUPABASE CONFIG
 // ══════════════════════════════════════════════════════
-export const SUPABASE_URL = "https://zszlqoisokjgvplrcbic.supabase.co";
-export const SUPABASE_KEY = "sb_publishable_b6ZEtYrgGIQT8WxkahGzZg_iHTYMasi";
+export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+export const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 
 // ══════════════════════════════════════════════════════
 // SHIFT CONSTANTS

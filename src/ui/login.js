@@ -1,6 +1,7 @@
 import { S } from '../state.js';
 import { e, div, btn, render } from '../utils.js';
 import { handleLogin, handleRegister, handleAcceptInvitation } from '../auth.js';
+import { loadAll } from '../db.js';
 import { sb } from '../supabase.js';
 
 export function viewLoading() {
@@ -14,6 +15,7 @@ export function viewLoading() {
 export function viewLogin() {
   const isReg = S.loginMode === "register";
   const isInvite = S.loginMode === "accept_invitation";
+  const isReset = S.loginMode === "reset_password";
   const wrap = e("div",{class:"login-wrap"});
   const card = e("div",{class:"login-card"});
 
@@ -25,9 +27,11 @@ export function viewLogin() {
     ])
   ]));
   card.appendChild(e("div",{class:"login-h1"},
+    isReset ? "🔐 בחר סיסמה חדשה" :
     isInvite ? "✉️ הזמנה ל-"+(S.pendingInvitation?.businessName||"") :
     isReg ? "הרשמה חינם" : "ברוך הבא"));
   card.appendChild(e("p",{class:"subtitle"},
+    isReset ? "הכנס סיסמה חדשה לחשבונך" :
     isInvite ? "השלם פרטים להצטרפות כ"+((S.pendingInvitation?.role==="admin"||S.pendingInvitation?.role==="manager")?"מנהל":"עובד") :
     isReg ? "צור חשבון מנהל" : "הכנס פרטים להמשך"));
 
@@ -36,34 +40,50 @@ export function viewLogin() {
 
   const form = e("form",{onsubmit: async ev => {
     ev.preventDefault();
-    const btn = form.querySelector("button[type=submit]");
-    btn.disabled=true; errBox.classList.add("hidden");
+    const submitBtn = form.querySelector("button[type=submit]");
+    submitBtn.disabled=true; errBox.classList.add("hidden");
     try {
-      if (isInvite) await handleAcceptInvitation(
-        form.querySelector("[name=name]").value,
-        form.querySelector("[name=pass]").value,
-        S.pendingInvitation.token,
-        S.pendingInvitation.email
-      );
-      else if (isReg) await handleRegister(
-        form.querySelector("[name=name]").value,
-        form.querySelector("[name=biz]")?.value||"",
-        form.querySelector("[name=email]").value,
-        form.querySelector("[name=pass]").value
-      );
-      else await handleLogin(
-        form.querySelector("[name=email]").value,
-        form.querySelector("[name=pass]").value
-      );
+      if (isReset) {
+        const pass = form.querySelector("[name=pass]").value;
+        const pass2 = form.querySelector("[name=pass2]").value;
+        if (pass.length < 6) throw new Error("סיסמה חייבת להיות לפחות 6 תווים");
+        if (pass !== pass2) throw new Error("הסיסמאות אינן תואמות");
+        const { error } = await sb.auth.updateUser({ password: pass });
+        if (error) throw error;
+        S.loginMode = 'login';
+        const { data: { user } } = await sb.auth.getUser();
+        if (user) await loadAll(user);
+      } else if (isInvite) {
+        await handleAcceptInvitation(
+          form.querySelector("[name=name]").value,
+          form.querySelector("[name=pass]").value,
+          S.pendingInvitation.token,
+          S.pendingInvitation.email
+        );
+      } else if (isReg) {
+        await handleRegister(
+          form.querySelector("[name=name]").value,
+          form.querySelector("[name=biz]")?.value||"",
+          form.querySelector("[name=email]").value,
+          form.querySelector("[name=pass]").value
+        );
+      } else {
+        await handleLogin(
+          form.querySelector("[name=email]").value,
+          form.querySelector("[name=pass]").value
+        );
+      }
       render();
     } catch(err) {
       errBox.textContent = "⚠️ "+(err.message||"שגיאה");
-      errBox.classList.remove("hidden"); btn.disabled=false;
+      errBox.classList.remove("hidden"); submitBtn.disabled=false;
     }
   }});
 
-  if (isInvite) {
-    // Show pre-filled email (locked) and ask for name + password only
+  if (isReset) {
+    form.appendChild(loginField("סיסמה חדשה","pass","password","לפחות 6 תווים",true));
+    form.appendChild(loginField("אשר סיסמה","pass2","password","הכנס שוב את הסיסמה",true));
+  } else if (isInvite) {
     form.appendChild(loginField("שם מלא","name","text",S.pendingInvitation?.name || "שם מלא",true));
     const emailField = div("field",[
       e("label",{},"אימייל"),
@@ -81,18 +101,19 @@ export function viewLogin() {
     form.appendChild(loginField("סיסמה","pass","password","••••••••",true));
   }
   form.appendChild(e("button",{type:"submit",class:"btn-primary"},
+    isReset ? "שמור סיסמה חדשה →" :
     isInvite ? "✓ הצטרף לעסק →" :
-    isReg?"צור חשבון מנהל →":"כניסה →"));
+    isReg ? "צור חשבון מנהל →" : "כניסה →"));
   card.appendChild(form);
 
   // Forgot password (login mode only)
-  if (!isReg && !isInvite) {
+  if (!isReg && !isInvite && !isReset) {
     card.appendChild(div("switch-link",[
       e("a",{onclick:async()=>{
         const email = prompt("הכנס את האימייל שלך לקבלת לינק איפוס סיסמה:");
         if (!email) return;
         const { error } = await sb.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: window.location.origin + "/?reset=true"
+          redirectTo: window.location.origin + window.location.pathname
         });
         if (error) {
           alert("שגיאה: " + error.message);
@@ -104,15 +125,14 @@ export function viewLogin() {
   }
 
   // Switch links
-  if (isInvite) {
-    // Don't show switch links during invite acceptance
+  if (isInvite || isReset) {
+    // Don't show switch links during invite acceptance or password reset
   } else if (isReg) {
     card.appendChild(div("switch-link",[
       "יש לך חשבון? ",
       e("a",{onclick:()=>{S.loginMode="login";render();}},"כניסה →")
     ]));
   }
-  // Note: regular employees can no longer sign up directly - they must receive an invitation
   wrap.appendChild(card);
   return wrap;
 }

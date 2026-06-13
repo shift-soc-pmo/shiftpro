@@ -8,6 +8,15 @@ import { render } from './utils.js';
 // ══════════════════════════════════════════════════════
 
 export async function checkAuth(renderFn = () => {}) {
+  // Handle Supabase PASSWORD_RECOVERY event (user clicked email reset link)
+  sb.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      S.loginMode = 'reset_password';
+      S.view = 'login';
+      render();
+    }
+  });
+
   const params = new URLSearchParams(window.location.search);
   const inviteToken = params.get('invite');
 
@@ -107,7 +116,7 @@ export async function handleAcceptInvitation(name, password, token, email, onSuc
 export async function handleLogout() {
   await sb.auth.signOut();
   Object.assign(S, {
-    view: 'login', user: null, profile: null, business: null,
+    view: 'login', loginMode: 'login', user: null, profile: null, business: null,
     employees: [], vacations: [], schedule: {}, publishedWeeks: new Set()
   });
   render();
