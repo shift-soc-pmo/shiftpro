@@ -1,7 +1,8 @@
-const CACHE = "shiftpro-v2";
+const CACHE = "shiftpro-v3";
 const ASSETS = [
   "/",
   "/index.html",
+  "/app.html",
   "/manifest.json"
 ];
 

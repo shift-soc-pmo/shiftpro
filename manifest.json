@@ -2,7 +2,7 @@
   "name": "משמרת — ניהול משמרות חכם",
   "short_name": "משמרת",
   "description": "מערכת ניהול משמרות חכמה עם שיבוץ אוטומטי",
-  "start_url": "/",
+  "start_url": "/app.html",
   "display": "standalone",
   "background_color": "#0F172A",
   "theme_color": "#0F172A",
