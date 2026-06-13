@@ -3,6 +3,7 @@ import { S } from './state.js';
 // Set by main.js after render is defined — avoids circular imports
 let _render = () => {};
 export function setRenderFn(fn) { _render = fn; }
+export function render() { _render(); }
 
 // ══════════════════════════════════════════════════════
 // DOM HELPERS
