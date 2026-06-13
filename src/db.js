@@ -114,6 +114,9 @@ export async function loadSchedule() {
   S.schedule = sched_obj;
 }
 
+let _postLoadFn = () => {};
+export function setPostLoadFn(fn) { _postLoadFn = fn; }
+
 export async function loadAll(user) {
   S.user = user;
   const { data: profile } = await sb.from('profiles')
@@ -145,6 +148,7 @@ export async function loadAll(user) {
     S.view = 'home';
   }
 
+  _postLoadFn();
   return profile;
 }
 

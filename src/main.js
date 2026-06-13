@@ -2,8 +2,8 @@ import { S } from './state.js';
 import { e, div, btn, setRenderFn, toast, getWeekDates, fmtDate } from './utils.js';
 import { DAYS } from './config.js';
 import { checkAuth } from './auth.js';
-import { isManager, loadSchedule, loadAll, loadAvailSubmissions, loadSwapRequests, loadVacations, loadEmployees } from './db.js';
-import { setupRealtime, startAutoRefresh, silentRefresh as realtimeSilentRefresh } from './realtime.js';
+import { isManager, loadSchedule, loadAll, loadAvailSubmissions, loadSwapRequests, loadVacations, loadEmployees, setPostLoadFn } from './db.js';
+import { setupRealtime } from './realtime.js';
 import { setSchedulerDeps } from './scheduler.js';
 import { setScheduleActionsDeps } from './schedule-actions.js';
 import { setEmployeesDeps } from './employees.js';
@@ -230,6 +230,7 @@ function startLocalAutoRefresh() {
 
 // ── WIRE UP DEPS ──
 setRenderFn(render);
+setPostLoadFn(() => setupRealtime(render));
 setSchedulerDeps(render, toast);
 setScheduleActionsDeps(render, toast);
 setEmployeesDeps(render, toast);

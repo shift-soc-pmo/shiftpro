@@ -1,6 +1,7 @@
 import { sb } from './supabase.js';
 import { S } from './state.js';
 import { loadAll } from './db.js';
+import { render } from './utils.js';
 
 // ══════════════════════════════════════════════════════
 // AUTHENTICATION
@@ -103,11 +104,11 @@ export async function handleAcceptInvitation(name, password, token, email, onSuc
   if (onSuccess) onSuccess();
 }
 
-export async function handleLogout(renderFn = () => {}) {
+export async function handleLogout() {
   await sb.auth.signOut();
   Object.assign(S, {
     view: 'login', user: null, profile: null, business: null,
     employees: [], vacations: [], schedule: {}, publishedWeeks: new Set()
   });
-  renderFn();
+  render();
 }
