@@ -31,6 +31,30 @@ function $(id) { return document.getElementById(id); }
 
 function render() {
   const app = $("app");
+  try {
+    _renderInner(app);
+  } catch(err) {
+    console.error("Render error:", err);
+    app.innerHTML = "";
+    app.appendChild(_viewError(err));
+  }
+}
+
+function _viewError(err) {
+  const wrap = e("div",{style:"min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0F172A"});
+  wrap.appendChild(e("div",{style:"max-width:400px;text-align:center"},[
+    e("div",{style:"font-size:48px;margin-bottom:16px"},"⚠️"),
+    e("div",{style:"font-weight:800;font-size:18px;color:#E2E8F0;margin-bottom:8px"},"משהו השתבש"),
+    e("div",{style:"font-size:13px;color:#64748B;margin-bottom:24px;word-break:break-word"},err?.message||"שגיאה לא ידועה"),
+    e("button",{
+      style:"background:#3B82F6;color:white;border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit",
+      onclick:()=>{ S.view="home"; S.selectedCell=null; S.constraintsEmp=null; render(); }
+    },"חזור לדף הבית")
+  ]));
+  return wrap;
+}
+
+function _renderInner(app) {
   app.innerHTML = "";
 
   if (S.view==="loading") { app.appendChild(viewLoading()); return; }
