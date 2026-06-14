@@ -1,6 +1,7 @@
 import { S } from '../state.js';
 import { e, div, btn, fmtDate } from '../utils.js';
 import { sb } from '../supabase.js';
+import { getPlanConfig, saveGlobalPlanConfig } from '../db.js';
 
 let _render = () => {};
 let _toast  = () => {};
@@ -20,11 +21,71 @@ const ALL_FEATURES = [
   { id:'auto_schedule',  icon:'🤖', label:'שיבוץ אוטומטי' },
 ];
 
+function _viewPlanConfig() {
+  const cfg = getPlanConfig();
+  const plans = ['free','pro','enterprise'];
+  const card = div("card",[
+    e("div",{class:"card-title",style:"margin-bottom:14px"},"💳 תצורת תוכניות")
+  ]);
+
+  // draft edits stored in S.planDraft
+  if (!S.planDraft) S.planDraft = JSON.parse(JSON.stringify(cfg));
+
+  const grid = e("div",{style:"display:grid;grid-template-columns:repeat(3,1fr);gap:12px"});
+  plans.forEach(p => {
+    const d = S.planDraft[p] || {};
+    const col = { free:'#64748B', pro:'#3B82F6', enterprise:'#A855F7' }[p];
+    const planCard = e("div",{style:`background:#0F172A;border:2px solid ${col}33;border-radius:12px;padding:14px`});
+    planCard.appendChild(e("div",{style:`font-weight:800;font-size:14px;color:${col};margin-bottom:12px`},
+      (d.emoji||'')+" "+( d.label||p )));
+
+    // price
+    planCard.appendChild(e("label",{style:"font-size:11px;color:#64748B;display:block;margin-bottom:4px"},"מחיר ₪/חודש"));
+    const priceInp = e("input",{
+      class:"fi", type:"number", min:"0", value: String(d.price ?? 0),
+      style:"margin-bottom:10px",
+      oninput: ev => { S.planDraft[p].price = Number(ev.target.value); }
+    });
+    planCard.appendChild(priceInp);
+
+    // emp limit
+    planCard.appendChild(e("label",{style:"font-size:11px;color:#64748B;display:block;margin-bottom:4px"},"מקסימום עובדים"));
+    const limitInp = e("input",{
+      class:"fi", type:"number", min:"1",
+      placeholder: d.emp_limit === null ? "ללא הגבלה" : "",
+      value: d.emp_limit !== null ? String(d.emp_limit) : "",
+      style:"margin-bottom:4px",
+      oninput: ev => {
+        const v = ev.target.value.trim();
+        S.planDraft[p].emp_limit = v === "" ? null : Number(v);
+      }
+    });
+    planCard.appendChild(limitInp);
+    planCard.appendChild(e("div",{style:"font-size:10px;color:#475569"},"השאר ריק = ללא הגבלה"));
+
+    grid.appendChild(planCard);
+  });
+  card.appendChild(grid);
+
+  card.appendChild(btn("btn-add","💾 שמור תצורה", async () => {
+    try {
+      await saveGlobalPlanConfig(S.planDraft);
+      S.planDraft = null;
+      _toast("תצורת תוכניות עודכנה ✓");
+      _render();
+    } catch(err) { _toast("שגיאה: "+err.message,"err"); }
+  },{style:"width:100%;margin-top:14px"}));
+
+  return card;
+}
+
 export function viewSuperAdmin() {
   const wrap = e("div");
   wrap.appendChild(div("page-title",["👑 Super Admin — כל העסקים"],{style:"margin-bottom:16px"}));
 
-  const statsRow = e("div",{style:"display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px"});
+  wrap.appendChild(_viewPlanConfig());
+
+  const statsRow = e("div",{style:"display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;margin-top:20px"});
   const businesses = S.allBusinesses || [];
   const totalEmps  = businesses.reduce((s,b)=>s+(b.employee_count||0),0);
   const proCount   = businesses.filter(b=>b.plan==='pro'||b.plan==='enterprise').length;

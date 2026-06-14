@@ -4,7 +4,7 @@ import { SHIFTS, WEEKEND_SHIFTS, SHIFT_BY_ID, DAYS, BLOCK_SHIFTS } from '../conf
 import { RULES } from '../rules.js';
 import { sb } from '../supabase.js';
 import { handleLogout } from '../auth.js';
-import { loadAll, effectivePlan, PLAN_LIMITS, hasFeature } from '../db.js';
+import { loadAll, effectivePlan, PLAN_LIMITS, hasFeature, getPlanConfig, getPlan } from '../db.js';
 import { sendEmail } from '../notifications.js';
 import { logAction } from '../db.js';
 
@@ -14,11 +14,23 @@ let _render = () => {};
 let _toast = () => {};
 export function setSettingsDeps(renderFn, toastFn) { _render = renderFn; _toast = toastFn; }
 
-const PLAN_META = {
-  free:       {label:"חינמי",      color:"#64748B", emoji:"🆓", empLimit:10,  features:["עד 10 עובדים","שיבוץ ידני","ניהול חופשות"]},
-  pro:        {label:"Pro",        color:"#3B82F6", emoji:"⭐", empLimit:null, features:["עובדים ללא הגבלה","שיבוץ אוטומטי","התראות מייל","דוחות מתקדמים"]},
-  enterprise: {label:"Enterprise", color:"#A855F7", emoji:"👑", empLimit:null, features:["מספר סניפים","API גישה","תמיכה ייעודית 24/7","SLA מובטח"]},
+const PLAN_COLORS = { free:"#64748B", pro:"#3B82F6", enterprise:"#A855F7" };
+const PLAN_FEATURES = {
+  free:       ["שיבוץ ידני","ניהול חופשות"],
+  pro:        ["שיבוץ אוטומטי","התראות מייל","דוחות מתקדמים"],
+  enterprise: ["API גישה","תמיכה ייעודית 24/7","SLA מובטח"],
 };
+function getPlanMeta(planKey) {
+  const cfg = getPlan(planKey);
+  return {
+    label:    cfg.label    || planKey,
+    emoji:    cfg.emoji    || '📦',
+    color:    PLAN_COLORS[planKey] || '#64748B',
+    empLimit: cfg.emp_limit,
+    price:    cfg.price ?? 0,
+    features: PLAN_FEATURES[planKey] || [],
+  };
+}
 
 export function viewSettings() {
   const wrap = e("div");
@@ -28,7 +40,7 @@ export function viewSettings() {
   const plan = effectivePlan();
   const rawPlan = S.business?.plan || 'free';
   const isExpired = rawPlan !== 'free' && plan === 'free';
-  const pm   = PLAN_META[plan];
+  const pm = getPlanMeta(plan);
   const billingCard = div("card",[]);
   billingCard.appendChild(e("div",{style:"display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"},[
     e("div",{class:"card-title",style:"margin-bottom:0"},"💳 תוכנית נוכחית"),
@@ -36,15 +48,16 @@ export function viewSettings() {
   ]));
   if (isExpired) {
     billingCard.appendChild(e("div",{style:"background:#7F1D1D22;border:1px solid #EF4444;border-radius:8px;padding:8px 12px;font-size:12px;color:#FCA5A5;margin-bottom:10px"},
-      "⚠️ תוכנית ה-"+PLAN_META[rawPlan].label+" שלך פגה. צור קשר לחידוש."));
+      "⚠️ תוכנית ה-"+getPlanMeta(rawPlan).label+" שלך פגה. צור קשר לחידוש."));
   }
   billingCard.appendChild(e("div",{style:"display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"},
     pm.features.map(f=>e("div",{style:"background:#1E293B;border:1px solid #334155;border-radius:8px;padding:4px 10px;font-size:12px;color:#94A3B8"},f))
   ));
-  if (pm.empLimit) {
-    const cnt = (S.employees||[]).filter(e=>!e.is_deleted).length;
-    billingCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},
-      `עובדים: ${cnt} / ${pm.empLimit}`));
+  const cnt = (S.employees||[]).filter(e=>!e.is_deleted).length;
+  const limitStr = pm.empLimit !== null && pm.empLimit !== undefined ? `${cnt} / ${pm.empLimit}` : `${cnt} / ללא הגבלה`;
+  billingCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},`עובדים: ${limitStr}`));
+  if (pm.price > 0) {
+    billingCard.appendChild(e("div",{style:"font-size:12px;color:#94A3B8;margin-bottom:12px"},`מחיר: ₪${pm.price} / חודש`));
   }
   if (plan === 'free') {
     billingCard.appendChild(btn("btn-primary","⭐ שדרג לתוכנית Pro",()=>{

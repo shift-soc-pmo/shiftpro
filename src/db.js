@@ -20,7 +20,24 @@ export function isSuperAdmin() {
   return S.profile?.is_super_admin === true;
 }
 
+// Plan config — loaded from global_settings, fallback to hardcoded defaults
+const _defaultPlanConfig = {
+  free:       { price: 0,   emp_limit: 10,   label: 'חינמי',      emoji: '🆓' },
+  pro:        { price: 99,  emp_limit: 50,   label: 'Pro',        emoji: '⭐' },
+  enterprise: { price: 249, emp_limit: null, label: 'Enterprise', emoji: '👑' },
+};
+export function getPlanConfig() { return S.planConfig || _defaultPlanConfig; }
+export function getPlan(name)   { return getPlanConfig()[name] || _defaultPlanConfig[name] || {}; }
+
 export const PLAN_LIMITS = { free: 10, pro: Infinity, enterprise: Infinity };
+
+export function isAtEmployeeLimit() {
+  const cfg = getPlanConfig();
+  const plan = effectivePlan();
+  const limit = cfg[plan]?.emp_limit ?? null;
+  if (limit === null) return false;
+  return S.employees.filter(e => !e.is_deleted).length >= limit;
+}
 
 const FEATURE_DEFAULTS = { morning2: false };
 
@@ -43,10 +60,6 @@ export function effectivePlan() {
   return biz.plan;
 }
 
-export function isAtEmployeeLimit() {
-  const limit = PLAN_LIMITS[effectivePlan()];
-  return S.employees.filter(e => !e.is_deleted).length >= limit;
-}
 
 export function getActiveEmpId() {
   return (S.testAsEmployee && S.empViewId) ? S.empViewId : S.user?.id;
@@ -149,6 +162,19 @@ export async function loadSchedule() {
 let _postLoadFn = () => {};
 export function setPostLoadFn(fn) { _postLoadFn = fn; }
 
+export async function loadGlobalSettings() {
+  try {
+    const { data } = await sb.from('global_settings').select('plan_config').eq('id','main').maybeSingle();
+    if (data?.plan_config) S.planConfig = data.plan_config;
+  } catch(e) { /* use defaults */ }
+}
+
+export async function saveGlobalPlanConfig(config) {
+  const { error } = await sb.rpc('set_plan_config', { p_config: config });
+  if (error) throw error;
+  S.planConfig = config;
+}
+
 export async function loadAll(user) {
   S.user = user;
   const { data: profile } = await sb.from('profiles')
@@ -171,7 +197,7 @@ export async function loadAll(user) {
   if (savedHours.weNight?.start)   { WEEKEND_SHIFTS[1].start = savedHours.weNight.start;   WEEKEND_SHIFTS[1].end = savedHours.weNight.end; }
 
   await loadEmployees();
-  await Promise.all([loadVacations(), loadSwapRequests(), loadAvailSubmissions(), loadSchedule(), loadInvitations()]);
+  await Promise.all([loadVacations(), loadSwapRequests(), loadAvailSubmissions(), loadSchedule(), loadInvitations(), loadGlobalSettings()]);
 
   if (S.profile.role === 'employee') {
     S.view = 'empview';
