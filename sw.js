@@ -1,8 +1,9 @@
-const CACHE = "shift-soc-pmo-v1";
+const CACHE = "shiftpro-v3";
 const ASSETS = [
-  "/shiftpro/",
-  "/shiftpro/index.html",
-  "/shiftpro/manifest.json"
+  "/",
+  "/index.html",
+  "/app.html",
+  "/manifest.json"
 ];
 
 self.addEventListener("install", e => {
