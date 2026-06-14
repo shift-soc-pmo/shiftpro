@@ -534,8 +534,8 @@ footer{
           <div class="stat-lbl">חיסכון בזמן שיבוץ</div>
         </div>
         <div class="stat">
-          <div class="stat-num">0 ₪</div>
-          <div class="stat-lbl">עד 10 עובדים</div>
+          <div class="stat-num" id="stat-free-price">0 ₪</div>
+          <div class="stat-lbl" id="stat-free-limit">עד 10 עובדים</div>
         </div>
         <div class="stat">
           <div class="stat-num">24/7</div>
@@ -773,10 +773,10 @@ footer{
     <div class="pricing-grid">
       <div class="price-card">
         <div class="price-name">Starter</div>
-        <div class="price-amount">חינם<span></span></div>
+        <div class="price-amount" id="price-free">חינם<span></span></div>
         <div class="price-period">לתמיד — ללא כרטיס אשראי</div>
         <ul class="price-features">
-          <li>עד 10 עובדים</li>
+          <li id="price-free-limit">עד 10 עובדים</li>
           <li>שיבוץ אוטומטי</li>
           <li>ניהול חופשות</li>
           <li>גישה למנהל ועובדים</li>
@@ -790,8 +790,8 @@ footer{
       <div class="price-card featured">
         <div class="price-badge">הכי פופולרי</div>
         <div class="price-name">Pro</div>
-        <div class="price-amount">₪149<span>/חודש</span></div>
-        <div class="price-period">לכל גודל צוות</div>
+        <div class="price-amount" id="price-pro">₪149<span>/חודש</span></div>
+        <div class="price-period" id="price-pro-limit">לכל גודל צוות</div>
         <ul class="price-features">
           <li>עובדים ללא הגבלה</li>
           <li>שיבוץ אוטומטי מתקדם</li>
@@ -806,8 +806,8 @@ footer{
 
       <div class="price-card">
         <div class="price-name">Enterprise</div>
-        <div class="price-amount">בהתאמה<span></span></div>
-        <div class="price-period">לארגונים גדולים</div>
+        <div class="price-amount" id="price-enterprise">בהתאמה<span></span></div>
+        <div class="price-period" id="price-enterprise-limit">לארגונים גדולים</div>
         <ul class="price-features">
           <li>מספר סניפים / חברות</li>
           <li>API גישה</li>
@@ -1011,6 +1011,48 @@ function toggleFaq(btn) {
   document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
   if (!isOpen) item.classList.add('open');
 }
+
+// ── Live pricing from DB ──
+(async function loadLivePricing() {
+  try {
+    const SUPABASE_URL = 'https://zszlqoisokjgvplrcbic.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_b6ZEtYrgGIQT8WxkahGzZg_iHTYMasi';
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/global_settings?id=eq.main&select=plan_config',
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY } }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const cfg = data?.[0]?.plan_config;
+    if (!cfg) return;
+
+    // Free plan
+    const free = cfg.free || {};
+    const freePrice = document.getElementById('price-free');
+    if (freePrice) freePrice.innerHTML = (free.price > 0 ? '₪'+free.price : 'חינם') + '<span>'+(free.price > 0 ? '/חודש' : '')+'</span>';
+    const freeLimit = document.getElementById('price-free-limit');
+    if (freeLimit) freeLimit.textContent = free.emp_limit ? 'עד '+free.emp_limit+' עובדים' : 'עובדים ללא הגבלה';
+    const statPrice = document.getElementById('stat-free-price');
+    if (statPrice) statPrice.textContent = free.price > 0 ? '₪'+free.price : '0 ₪';
+    const statLimit = document.getElementById('stat-free-limit');
+    if (statLimit) statLimit.textContent = free.emp_limit ? 'עד '+free.emp_limit+' עובדים' : 'ללא הגבלה';
+
+    // Pro plan
+    const pro = cfg.pro || {};
+    const proPrice = document.getElementById('price-pro');
+    if (proPrice && pro.price != null) proPrice.innerHTML = (pro.price > 0 ? '₪'+pro.price : 'חינם') + '<span>'+(pro.price > 0 ? '/חודש' : '')+'</span>';
+    const proLimit = document.getElementById('price-pro-limit');
+    if (proLimit) proLimit.textContent = pro.emp_limit ? 'עד '+pro.emp_limit+' עובדים' : 'לכל גודל צוות';
+
+    // Enterprise plan
+    const ent = cfg.enterprise || {};
+    const entPrice = document.getElementById('price-enterprise');
+    if (entPrice && ent.price > 0) entPrice.innerHTML = '₪'+ent.price+'<span>/חודש</span>';
+    const entLimit = document.getElementById('price-enterprise-limit');
+    if (entLimit) entLimit.textContent = ent.emp_limit ? 'עד '+ent.emp_limit+' עובדים' : 'לארגונים גדולים';
+
+  } catch(e) { /* fail silently — defaults remain */ }
+})();
 </script>
 </body>
 </html>
