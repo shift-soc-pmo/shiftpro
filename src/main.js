@@ -2,7 +2,7 @@ import { S } from './state.js';
 import { e, div, btn, setRenderFn, toast, getWeekDates, fmtDate } from './utils.js';
 import { DAYS } from './config.js';
 import { checkAuth } from './auth.js';
-import { isManager, loadSchedule, loadAll, loadAvailSubmissions, loadSwapRequests, loadVacations, loadEmployees, setPostLoadFn } from './db.js';
+import { isManager, isSuperAdmin, loadSchedule, loadAll, loadAvailSubmissions, loadSwapRequests, loadVacations, loadEmployees, setPostLoadFn } from './db.js';
 import { setupRealtime } from './realtime.js';
 import { setSchedulerDeps } from './scheduler.js';
 import { setScheduleActionsDeps } from './schedule-actions.js';
@@ -25,6 +25,7 @@ import { viewEmpView, setEmpViewDeps, setEmpViewImports } from './ui/empview.js'
 import { viewConstraintsModal, viewInviteModal, viewExportModal, viewPublishModal, setModalsDeps } from './ui/modals.js';
 import { viewSettings, setSettingsDeps } from './ui/settings.js';
 import { viewEmpVacations, viewCalendar, viewEmpSettings, viewManagerBlocks, viewQualifications, setMiscDeps } from './ui/misc.js';
+import { viewSuperAdmin, setSuperAdminDeps } from './ui/superadmin.js';
 
 // ── RENDER ──
 function $(id) { return document.getElementById(id); }
@@ -78,8 +79,9 @@ function _renderInner(app) {
     else if(S.view==="blocks")    { S.empViewTab="avail"; main.appendChild(viewEmpView()); }
     else if(S.view==="emp_settings") main.appendChild(viewEmpSettings());
     else if(S.view==="empview")   main.appendChild(viewEmpView());
-    else if(S.view==="settings")  main.appendChild(viewSettings());
-    else if(S.view==="qualifications" && isManager())  main.appendChild(viewQualifications());
+    else if(S.view==="settings")    main.appendChild(viewSettings());
+    else if(S.view==="qualifications" && isManager()) main.appendChild(viewQualifications());
+    else if(S.view==="superadmin" && isSuperAdmin())  main.appendChild(viewSuperAdmin());
 
     appWrap.appendChild(main);
     app.appendChild(appWrap);
@@ -266,6 +268,7 @@ setEmpViewImports(viewEmpVacations, viewSwaps);
 setModalsDeps(render, toast);
 setSettingsDeps(render, toast);
 setMiscDeps(render, toast);
+setSuperAdminDeps(render, toast);
 
 // Expose render globally (used by index.html inline event handlers during transition)
 window.render = render;

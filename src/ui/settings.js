@@ -14,9 +14,38 @@ let _render = () => {};
 let _toast = () => {};
 export function setSettingsDeps(renderFn, toastFn) { _render = renderFn; _toast = toastFn; }
 
+const PLAN_META = {
+  free:       {label:"חינמי",      color:"#64748B", emoji:"🆓", empLimit:10,  features:["עד 10 עובדים","שיבוץ ידני","ניהול חופשות"]},
+  pro:        {label:"Pro",        color:"#3B82F6", emoji:"⭐", empLimit:null, features:["עובדים ללא הגבלה","שיבוץ אוטומטי","התראות מייל","דוחות מתקדמים"]},
+  enterprise: {label:"Enterprise", color:"#A855F7", emoji:"👑", empLimit:null, features:["מספר סניפים","API גישה","תמיכה ייעודית 24/7","SLA מובטח"]},
+};
+
 export function viewSettings() {
   const wrap = e("div");
   wrap.appendChild(div("page-title",["⚙️ הגדרות"],{style:"margin-bottom:16px"}));
+
+  // Billing / Plan card
+  const plan = S.business?.plan || 'free';
+  const pm   = PLAN_META[plan];
+  const billingCard = div("card",[]);
+  billingCard.appendChild(e("div",{style:"display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"},[
+    e("div",{class:"card-title",style:"margin-bottom:0"},"💳 תוכנית נוכחית"),
+    e("div",{style:`background:${pm.color}22;color:${pm.color};border:1px solid ${pm.color}44;border-radius:10px;padding:4px 14px;font-weight:800;font-size:13px`},pm.emoji+" "+pm.label)
+  ]));
+  billingCard.appendChild(e("div",{style:"display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"},
+    pm.features.map(f=>e("div",{style:"background:#1E293B;border:1px solid #334155;border-radius:8px;padding:4px 10px;font-size:12px;color:#94A3B8"},f))
+  ));
+  if (pm.empLimit) {
+    const cnt = (S.employees||[]).filter(e=>!e.is_deleted).length;
+    billingCard.appendChild(e("div",{style:"font-size:12px;color:#64748B;margin-bottom:12px"},
+      `עובדים: ${cnt} / ${pm.empLimit}`));
+  }
+  if (plan === 'free') {
+    billingCard.appendChild(btn("btn-primary","⭐ שדרג לתוכנית Pro",()=>{
+      window.open("mailto:hello@shiftpro.co.il?subject=שדרוג%20לPro&body=שלום%2C%20אשמח%20לשדרג%20את%20החשבון%20שלי%20לתוכנית%20Pro","_blank");
+    },{style:"width:100%"}));
+  }
+  wrap.appendChild(billingCard);
 
   if (!S.settingsData) S.settingsData = {
     morningStart: SHIFTS[0].start, morningEnd: SHIFTS[0].end,

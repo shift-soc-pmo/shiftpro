@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { e, div, btn, render } from '../utils.js';
 import { handleLogout } from '../auth.js';
-import { isManager } from '../db.js';
+import { isManager, isSuperAdmin } from '../db.js';
 
 export function viewHeader() {
   const pendingVacs = S.vacations.filter(v=>v.status==="pending").length;
@@ -24,9 +24,10 @@ const tabs = empOnly ? [
     {id:"qualifications", icon:"🎯", label:"כשירות"},
     {id:"vacations",icon:"🌴", label:"חופשות", badge:pendingVacs},
     {id:"swaps",    icon:"🔄", label:"חילופים", badge:pendingSwaps, badgeClass:"badge-purple"},
-    {id:"stats",    icon:"📊", label:"נתונים"},
-    {id:"empview",  icon:"👤", label:"עובד"},
-    {id:"settings", icon:"⚙️", label:"הגדרות"},
+    {id:"stats",      icon:"📊", label:"נתונים"},
+    {id:"empview",    icon:"👤", label:"עובד"},
+    {id:"settings",   icon:"⚙️", label:"הגדרות"},
+    ...(isSuperAdmin() ? [{id:"superadmin", icon:"👑", label:"Super Admin"}] : []),
   ];
   return e("header",{class:"header"},[
     div("header-inner",[

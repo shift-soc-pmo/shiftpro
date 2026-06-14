@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { e, div, btn, getEmp, empIdx, render, toast } from '../utils.js';
 import { SHIFTS, EMP_COLORS, ec } from '../config.js';
-import { isManager } from '../db.js';
+import { isManager, isAtEmployeeLimit, PLAN_LIMITS } from '../db.js';
 import { addEmployee, renameEmployee, deleteEmployee, saveConstraints, createInvitation, revokeInvitation, resendInvitation, copyInviteLink, resetPassword } from '../employees.js';
 
 // ── EMPLOYEES ──
@@ -10,11 +10,17 @@ export function viewEmployees() {
   wrap.appendChild(div("section-header",[
     div("page-title",["👥 עובדים"]),
     e("div",{style:"display:flex;gap:8px;align-items:center"},[
-      btn("btn-add","✉️ הזמן עובד",()=>{
-        S.showInviteModal=true;
-        S.newInvitation={name:"",email:"",role:"employee"};
-        loadInvitations().then(()=>render());
-      })
+      isAtEmployeeLimit()
+        ? e("div",{style:"display:flex;align-items:center;gap:8px"},[
+            e("div",{style:"font-size:12px;color:#F59E0B;font-weight:700"},
+              `הגעת למגבלת ${PLAN_LIMITS[S.business?.plan||'free']} עובדים`),
+            btn("btn-sm btn-sm-blue","⭐ שדרג",()=>{S.view='settings';render();})
+          ])
+        : btn("btn-add","✉️ הזמן עובד",()=>{
+            S.showInviteModal=true;
+            S.newInvitation={name:"",email:"",role:"employee"};
+            loadInvitations().then(()=>render());
+          })
     ])
   ]));
 

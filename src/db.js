@@ -16,6 +16,17 @@ export function isAdmin() {
   return S.profile?.role === 'admin';
 }
 
+export function isSuperAdmin() {
+  return S.profile?.is_super_admin === true;
+}
+
+export const PLAN_LIMITS = { free: 10, pro: Infinity, enterprise: Infinity };
+
+export function isAtEmployeeLimit() {
+  const limit = PLAN_LIMITS[S.business?.plan || 'free'];
+  return S.employees.filter(e => !e.is_deleted).length >= limit;
+}
+
 export function getActiveEmpId() {
   return (S.testAsEmployee && S.empViewId) ? S.empViewId : S.user?.id;
 }
