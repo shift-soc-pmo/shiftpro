@@ -3,7 +3,7 @@ import { e, div, btn, getWeekDates, fmtDate, today, getEmp, empIdx } from '../ut
 import { SHIFTS, BLOCK_SHIFTS, DAYS, ec, getHoliday, SHIFT_BY_ID } from '../config.js';
 import { addVacation, deleteVacRequest } from '../vacations.js';
 import { submitAvailability } from '../availability.js';
-import { loadSchedule } from '../db.js';
+import { loadSchedule, activeShifts } from '../db.js';
 import { handleLogout } from '../auth.js';
 import { sb } from '../supabase.js';
 
@@ -178,7 +178,7 @@ export function viewCalendar() {
 
     const daySched = S.schedule[dateStr];
     if (daySched) {
-      SHIFTS.forEach(sh => {
+      activeShifts().forEach(sh => {
         const empIds = daySched[sh.id];
         if (Array.isArray(empIds) && empIds.length > 0) {
           cell.appendChild(e("div",{style:"font-size:8px;background:"+sh.color+"22;color:"+sh.color+";border-radius:3px;padding:1px 3px;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},sh.label+": "+empIds.length));

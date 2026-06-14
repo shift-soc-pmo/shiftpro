@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { e, div, btn, getWeekDates, fmtDate, getEmp, empIdx, today, render, toast } from '../utils.js';
 import { SHIFTS, WEEKEND_SHIFTS, DAYS, SHIFT_LABELS, SHIFT_BY_ID, EMP_COLORS, ec, getShiftsForDate, getHoliday } from '../config.js';
-import { isManager } from '../db.js';
+import { isManager, activeShifts } from '../db.js';
 import { runSmartSchedule } from '../scheduler.js';
 import { toggleCellEmp, toggleLock, publishWeek } from '../schedule-actions.js';
 import { loadSchedule } from '../db.js';
@@ -185,7 +185,7 @@ export function viewSchedule() {
     tbody.appendChild(absRow);
   }
 
-  SHIFTS.forEach(shift => {
+  activeShifts().forEach(shift => {
     const row = e("tr");
     row.appendChild(e("td",{style:"border-right:2px solid "+shift.color+"44;padding-right:12px"},[
       e("div",{style:"font-weight:700;font-size:13px;color:"+shift.color},shift.label),

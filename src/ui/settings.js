@@ -4,7 +4,7 @@ import { SHIFTS, WEEKEND_SHIFTS, SHIFT_BY_ID, DAYS, BLOCK_SHIFTS } from '../conf
 import { RULES } from '../rules.js';
 import { sb } from '../supabase.js';
 import { handleLogout } from '../auth.js';
-import { loadAll, effectivePlan, PLAN_LIMITS } from '../db.js';
+import { loadAll, effectivePlan, PLAN_LIMITS, hasFeature } from '../db.js';
 import { sendEmail } from '../notifications.js';
 import { logAction } from '../db.js';
 
@@ -66,7 +66,7 @@ export function viewSettings() {
   const shiftCard = div("card",[e("div",{class:"card-title"},"🕐 שעות משמרות")]);
   const shiftDefs = [
     {id:"morning",label:"בוקר",sk:"morning"},
-    {id:"morning2",label:"בוקר ב׳",sk:"morning2"},
+    ...(hasFeature("morning2") ? [{id:"morning2",label:"בוקר ב׳",sk:"morning2"}] : []),
     {id:"afternoon",label:"צהריים",sk:"afternoon"},
     {id:"night",label:"לילה",sk:"night"},
   ];

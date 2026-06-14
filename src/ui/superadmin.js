@@ -10,6 +10,7 @@ const PLAN_COLORS = { free:'#64748B', pro:'#3B82F6', enterprise:'#A855F7' };
 const PLAN_LABELS = { free:'חינמי', pro:'Pro', enterprise:'Enterprise' };
 
 const ALL_FEATURES = [
+  { id:'morning2',       icon:'🌅', label:'בוקר ב׳' },
   { id:'qualifications', icon:'🎯', label:'כשירות' },
   { id:'swaps',          icon:'🔄', label:'חילופים' },
   { id:'vacations',      icon:'🌴', label:'חופשות' },

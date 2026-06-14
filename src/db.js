@@ -22,10 +22,17 @@ export function isSuperAdmin() {
 
 export const PLAN_LIMITS = { free: 10, pro: Infinity, enterprise: Infinity };
 
+const FEATURE_DEFAULTS = { morning2: false };
+
 export function hasFeature(name) {
   const f = S.business?.features;
-  if (!f || f[name] === undefined) return true; // default on
-  return f[name] === true;
+  const val = f?.[name];
+  if (val === undefined) return FEATURE_DEFAULTS[name] !== false;
+  return val === true;
+}
+
+export function activeShifts() {
+  return hasFeature('morning2') ? SHIFTS : SHIFTS.filter(s => s.id !== 'morning2');
 }
 
 export function effectivePlan() {

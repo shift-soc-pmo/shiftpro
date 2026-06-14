@@ -5,6 +5,7 @@ import { saveConstraints } from '../employees.js';
 import { createInvitation } from '../employees.js';
 import { publishWeek } from '../schedule-actions.js';
 import { sb } from '../supabase.js';
+import { activeShifts } from '../db.js';
 
 let _render = () => {};
 let _toast = () => {};
@@ -77,7 +78,7 @@ export function viewConstraintsModal() {
       e("div",{style:"font-size:11px;color:#475569;margin-bottom:10px"},"למשל: עובד שעובד רק בוקר — בטל את הסימון מצהריים ולילה")
     ],{style:"margin-bottom:12px"});
     const shiftsGrid = e("div",{style:"display:flex;gap:8px"});
-    SHIFTS.forEach(sh => {
+    activeShifts().forEach(sh => {
       const isAllowed = localWorkShifts.includes(sh.id);
       shiftsGrid.appendChild(e("button",{
         style:`flex:1;padding:14px 10px;border-radius:12px;border:2px solid ${isAllowed?sh.color:sh.color+"33"};background:${isAllowed?sh.color+"22":"#0F172A"};color:${isAllowed?sh.color:"#475569"};font-family:inherit;font-weight:800;font-size:14px;cursor:pointer;text-align:center`,
@@ -403,7 +404,7 @@ export async function exportSchedulePDF(weekOffsetParam) {
   });
   html += "</tr>";
 
-  SHIFTS.forEach(sh => {
+  activeShifts().forEach(sh => {
     html += `<tr><td class="${sh.id}">${sh.label}<br><small>${sh.start}–${sh.end}</small></td>`;
     wd.forEach(date => {
       const empIds = scheduleData[date]?.[sh.id]||[];

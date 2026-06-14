@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { e, div, btn, getWeekDates, fmtDate, today, getEmp, empIdx, getTimeBasedGreeting } from '../utils.js';
 import { SHIFTS, BLOCK_SHIFTS, DAYS, ec, getHoliday, SHIFT_BY_ID } from '../config.js';
-import { getActiveProfile, loadSchedule } from '../db.js';
+import { getActiveProfile, loadSchedule, activeShifts } from '../db.js';
 import { submitAvailability } from '../availability.js';
 import { sendEmail } from '../notifications.js';
 
@@ -99,7 +99,7 @@ export function viewEmpView() {
     const myShifts = [];
     if (!isRealEmp2 || isPublishedMyShifts) {
       wd.forEach(date => {
-        SHIFTS.forEach(sh => {
+        activeShifts().forEach(sh => {
           if ((S.schedule[date]?.[sh.id]||[]).includes(emp.id)) {
             const ch = S.customHours[date+"|"+sh.id+"|"+emp.id];
             myShifts.push({date,shift:sh,ch});
@@ -181,7 +181,7 @@ export function viewEmpView() {
       thead.appendChild(hrow);
       tbl.appendChild(thead);
       const tbody = e("tbody");
-      SHIFTS.forEach(sh => {
+      activeShifts().forEach(sh => {
         const row = e("tr");
         row.appendChild(e("td",{style:"font-weight:700;font-size:11px;color:"+sh.color},sh.label));
         wd.forEach(date => {
