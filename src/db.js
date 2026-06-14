@@ -22,6 +22,12 @@ export function isSuperAdmin() {
 
 export const PLAN_LIMITS = { free: 10, pro: Infinity, enterprise: Infinity };
 
+export function hasFeature(name) {
+  const f = S.business?.features;
+  if (!f || f[name] === undefined) return true; // default on
+  return f[name] === true;
+}
+
 export function effectivePlan() {
   const biz = S.business;
   if (!biz) return 'free';

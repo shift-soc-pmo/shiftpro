@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { e, div, btn, render } from '../utils.js';
 import { handleLogout } from '../auth.js';
-import { isManager, isSuperAdmin } from '../db.js';
+import { isManager, isSuperAdmin, hasFeature } from '../db.js';
 
 export function viewHeader() {
   const pendingVacs = S.vacations.filter(v=>v.status==="pending").length;
@@ -11,20 +11,20 @@ export function viewHeader() {
 const tabs = empOnly ? [
     {id:"empview",  icon:"📋", label:"המשמרות שלי"},
     {id:"schedule", icon:"📅", label:"סידור"},
-    {id:"blocks",   icon:"🚫", label:"חסימות"},
-    {id:"vacations",icon:"🌴", label:"היעדרויות"},
-    {id:"swaps",    icon:"🔄", label:"חילופים"},
+    ...(hasFeature("blocks")    ? [{id:"blocks",   icon:"🚫", label:"חסימות"}] : []),
+    ...(hasFeature("vacations") ? [{id:"vacations",icon:"🌴", label:"היעדרויות"}] : []),
+    ...(hasFeature("swaps")     ? [{id:"swaps",    icon:"🔄", label:"חילופים"}] : []),
     {id:"emp_settings", icon:"⚙️", label:"הגדרות"},
   ] : [
     {id:"home",     icon:"🏠", label:"בית"},
     {id:"schedule", icon:"📅", label:"סידור"},
-    {id:"calendar", icon:"🗓️", label:"חודש"},
+    ...(hasFeature("calendar")        ? [{id:"calendar", icon:"🗓️", label:"חודש"}] : []),
     {id:"employees",icon:"👥", label:"עובדים"},
-    {id:"manager_blocks", icon:"🚫", label:"חסימות"}, // <--- הוספנו את הטאב הזה למנהלים!
-    {id:"qualifications", icon:"🎯", label:"כשירות"},
-    {id:"vacations",icon:"🌴", label:"חופשות", badge:pendingVacs},
-    {id:"swaps",    icon:"🔄", label:"חילופים", badge:pendingSwaps, badgeClass:"badge-purple"},
-    {id:"stats",      icon:"📊", label:"נתונים"},
+    ...(hasFeature("blocks")          ? [{id:"manager_blocks", icon:"🚫", label:"חסימות"}] : []),
+    ...(hasFeature("qualifications")  ? [{id:"qualifications", icon:"🎯", label:"כשירות"}] : []),
+    ...(hasFeature("vacations")       ? [{id:"vacations",icon:"🌴", label:"חופשות", badge:pendingVacs}] : []),
+    ...(hasFeature("swaps")           ? [{id:"swaps",    icon:"🔄", label:"חילופים", badge:pendingSwaps, badgeClass:"badge-purple"}] : []),
+    ...(hasFeature("stats")           ? [{id:"stats",      icon:"📊", label:"נתונים"}] : []),
     {id:"empview",    icon:"👤", label:"עובד"},
     {id:"settings",   icon:"⚙️", label:"הגדרות"},
     ...(isSuperAdmin() ? [{id:"superadmin", icon:"👑", label:"Super Admin"}] : []),

@@ -2,7 +2,7 @@ import { S } from './state.js';
 import { e, div, btn, setRenderFn, toast, getWeekDates, fmtDate } from './utils.js';
 import { DAYS } from './config.js';
 import { checkAuth } from './auth.js';
-import { isManager, isSuperAdmin, loadSchedule, loadAll, loadAvailSubmissions, loadSwapRequests, loadVacations, loadEmployees, setPostLoadFn } from './db.js';
+import { isManager, isSuperAdmin, hasFeature, loadSchedule, loadAll, loadAvailSubmissions, loadSwapRequests, loadVacations, loadEmployees, setPostLoadFn } from './db.js';
 import { setupRealtime } from './realtime.js';
 import { setSchedulerDeps } from './scheduler.js';
 import { setScheduleActionsDeps } from './schedule-actions.js';
@@ -100,18 +100,18 @@ function _renderInner(app) {
     const bottomTabs = isEmpOnly ? [
       {id:"empview",icon:"📋",label:"שלי"},
       {id:"schedule",icon:"📅",label:"סידור"},
-      {id:"blocks",icon:"🚫",label:"חסימות"},
-      {id:"vacations",icon:"🌴",label:"העדרויות"},
-      {id:"swaps_nav",icon:"🔄",label:"חילופים"},
+      ...(hasFeature("blocks")    ? [{id:"blocks",icon:"🚫",label:"חסימות"}] : []),
+      ...(hasFeature("vacations") ? [{id:"vacations",icon:"🌴",label:"העדרויות"}] : []),
+      ...(hasFeature("swaps")     ? [{id:"swaps_nav",icon:"🔄",label:"חילופים"}] : []),
       {id:"emp_settings",icon:"⚙️",label:"הגדרות"},
     ] : [
       {id:"home",icon:"🏠",label:"בית"},
       {id:"schedule",icon:"📅",label:"סידור"},
       {id:"employees",icon:"👥",label:"עובדים"},
-      {id:"manager_blocks",icon:"🚫",label:"חסימות"},
-      {id:"qualifications",icon:"🎯",label:"כשירות"},
-      {id:"vacations",icon:"🌴",label:"העדרויות",badge:pendingVacs2},
-      {id:"swaps",icon:"🔄",label:"חילופים"},
+      ...(hasFeature("blocks")         ? [{id:"manager_blocks",icon:"🚫",label:"חסימות"}] : []),
+      ...(hasFeature("qualifications") ? [{id:"qualifications",icon:"🎯",label:"כשירות"}] : []),
+      ...(hasFeature("vacations")      ? [{id:"vacations",icon:"🌴",label:"העדרויות",badge:pendingVacs2}] : []),
+      ...(hasFeature("swaps")          ? [{id:"swaps",icon:"🔄",label:"חילופים"}] : []),
       {id:"settings",icon:"⚙️",label:"הגדרות"},
     ];
     bottomTabs.forEach(t => {

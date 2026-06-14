@@ -9,6 +9,16 @@ export function setSuperAdminDeps(renderFn, toastFn) { _render = renderFn; _toas
 const PLAN_COLORS = { free:'#64748B', pro:'#3B82F6', enterprise:'#A855F7' };
 const PLAN_LABELS = { free:'חינמי', pro:'Pro', enterprise:'Enterprise' };
 
+const ALL_FEATURES = [
+  { id:'qualifications', icon:'🎯', label:'כשירות' },
+  { id:'swaps',          icon:'🔄', label:'חילופים' },
+  { id:'vacations',      icon:'🌴', label:'חופשות' },
+  { id:'blocks',         icon:'🚫', label:'חסימות' },
+  { id:'stats',          icon:'📊', label:'נתונים' },
+  { id:'calendar',       icon:'🗓️', label:'לוח שנה' },
+  { id:'auto_schedule',  icon:'🤖', label:'שיבוץ אוטומטי' },
+];
+
 export function viewSuperAdmin() {
   const wrap = e("div");
   wrap.appendChild(div("page-title",["👑 Super Admin — כל העסקים"],{style:"margin-bottom:16px"}));
@@ -96,6 +106,44 @@ function _bizRow(card, biz) {
     _planSelector(biz),
   ]));
   row.appendChild(topLine);
+
+  // Feature toggles — collapsible
+  const featKey = 'adminFeat_' + biz.id;
+  if (!S[featKey]) S[featKey] = false;
+  const featToggleBtn = btn("btn-sm btn-sm-gray",
+    (S[featKey] ? "▲ " : "▼ ") + "מודולים",
+    () => { S[featKey] = !S[featKey]; _render(); },
+    { style:"margin-top:8px;font-size:11px" }
+  );
+  row.appendChild(featToggleBtn);
+
+  if (S[featKey]) {
+    const feats = biz.features || {};
+    const featGrid = e("div",{style:"display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;padding:10px;background:#0F172A;border-radius:8px;border:1px solid #1E293B"});
+    ALL_FEATURES.forEach(f => {
+      const isOn = feats[f.id] !== false; // default true
+      const pill = e("div",{
+        style:`display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;cursor:pointer;font-size:12px;border:1px solid;transition:all 0.15s;`
+          + (isOn
+            ? "background:#10B98122;color:#10B981;border-color:#10B98144"
+            : "background:#1E293B;color:#475569;border-color:#334155"),
+        onclick: async () => {
+          const newFeats = { ...feats, [f.id]: !isOn };
+          const { error } = await sb.rpc('set_business_features',{ p_business_id:biz.id, p_features:newFeats });
+          if (error) { _toast("שגיאה: "+error.message,"err"); return; }
+          biz.features = newFeats;
+          _toast((isOn?"כובה":"הופעל")+" — "+f.label+" ✓");
+          _render();
+        }
+      },[
+        e("span",{},f.icon),
+        e("span",{},f.label),
+        e("span",{style:"font-weight:800;margin-right:2px"},isOn?"✓":"✕"),
+      ]);
+      featGrid.appendChild(pill);
+    });
+    row.appendChild(featGrid);
+  }
 
   // Expiry controls (only for paid plans)
   if (isPaid) {
