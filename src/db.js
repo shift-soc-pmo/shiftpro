@@ -22,8 +22,16 @@ export function isSuperAdmin() {
 
 export const PLAN_LIMITS = { free: 10, pro: Infinity, enterprise: Infinity };
 
+export function effectivePlan() {
+  const biz = S.business;
+  if (!biz) return 'free';
+  if (biz.plan === 'free') return 'free';
+  if (biz.plan_expires_at && new Date(biz.plan_expires_at) < new Date()) return 'free';
+  return biz.plan;
+}
+
 export function isAtEmployeeLimit() {
-  const limit = PLAN_LIMITS[S.business?.plan || 'free'];
+  const limit = PLAN_LIMITS[effectivePlan()];
   return S.employees.filter(e => !e.is_deleted).length >= limit;
 }
 

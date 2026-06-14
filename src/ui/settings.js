@@ -4,7 +4,7 @@ import { SHIFTS, WEEKEND_SHIFTS, SHIFT_BY_ID, DAYS, BLOCK_SHIFTS } from '../conf
 import { RULES } from '../rules.js';
 import { sb } from '../supabase.js';
 import { handleLogout } from '../auth.js';
-import { loadAll } from '../db.js';
+import { loadAll, effectivePlan, PLAN_LIMITS } from '../db.js';
 import { sendEmail } from '../notifications.js';
 import { logAction } from '../db.js';
 
@@ -25,13 +25,19 @@ export function viewSettings() {
   wrap.appendChild(div("page-title",["⚙️ הגדרות"],{style:"margin-bottom:16px"}));
 
   // Billing / Plan card
-  const plan = S.business?.plan || 'free';
+  const plan = effectivePlan();
+  const rawPlan = S.business?.plan || 'free';
+  const isExpired = rawPlan !== 'free' && plan === 'free';
   const pm   = PLAN_META[plan];
   const billingCard = div("card",[]);
   billingCard.appendChild(e("div",{style:"display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"},[
     e("div",{class:"card-title",style:"margin-bottom:0"},"💳 תוכנית נוכחית"),
     e("div",{style:`background:${pm.color}22;color:${pm.color};border:1px solid ${pm.color}44;border-radius:10px;padding:4px 14px;font-weight:800;font-size:13px`},pm.emoji+" "+pm.label)
   ]));
+  if (isExpired) {
+    billingCard.appendChild(e("div",{style:"background:#7F1D1D22;border:1px solid #EF4444;border-radius:8px;padding:8px 12px;font-size:12px;color:#FCA5A5;margin-bottom:10px"},
+      "⚠️ תוכנית ה-"+PLAN_META[rawPlan].label+" שלך פגה. צור קשר לחידוש."));
+  }
   billingCard.appendChild(e("div",{style:"display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"},
     pm.features.map(f=>e("div",{style:"background:#1E293B;border:1px solid #334155;border-radius:8px;padding:4px 10px;font-size:12px;color:#94A3B8"},f))
   ));

@@ -62,24 +62,78 @@ export function viewSuperAdmin() {
   if (filtered.length === 0) {
     card.appendChild(e("div",{style:"color:#64748B;text-align:center;padding:20px"},"אין תוצאות"));
   } else {
-    filtered.forEach(biz => {
-      const planColor = PLAN_COLORS[biz.plan] || '#64748B';
-      const row = e("div",{style:"display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid #1E293B"},[
-        e("div",{style:"flex:1;min-width:0"},[
-          e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0;margin-bottom:2px"},biz.name),
-          e("div",{style:"font-size:12px;color:#64748B"},biz.owner_email||"—"),
-        ]),
-        e("div",{style:"display:flex;align-items:center;gap:8px;flex-shrink:0"},[
-          e("div",{style:`font-size:11px;color:#94A3B8`},biz.employee_count+" עובדים"),
-          e("div",{style:`background:${planColor}22;color:${planColor};border:1px solid ${planColor}44;border-radius:8px;padding:2px 10px;font-size:11px;font-weight:800`},PLAN_LABELS[biz.plan]||biz.plan),
-          _planSelector(biz),
-        ])
-      ]);
-      card.appendChild(row);
-    });
+    filtered.forEach(biz => _bizRow(card, biz));
   }
   wrap.appendChild(card);
   return wrap;
+}
+
+function _bizRow(card, biz) {
+  const planColor = PLAN_COLORS[biz.plan] || '#64748B';
+  const expires = biz.plan_expires_at ? new Date(biz.plan_expires_at) : null;
+  const isExpired = expires && expires < new Date();
+  const isPaid = biz.plan === 'pro' || biz.plan === 'enterprise';
+
+  // Format expiry label
+  let expiryLabel = "";
+  if (isPaid) {
+    if (!expires) expiryLabel = "♾️ ללא תפוגה";
+    else if (isExpired) expiryLabel = "⚠️ פג " + expires.toLocaleDateString("he-IL");
+    else expiryLabel = "⏳ עד " + expires.toLocaleDateString("he-IL");
+  }
+
+  const row = e("div",{style:"padding:14px 0;border-bottom:1px solid #1E293B"});
+
+  // Top line: name + email + counters + plan badge + plan selector
+  const topLine = e("div",{style:"display:flex;align-items:center;gap:10px;flex-wrap:wrap"});
+  topLine.appendChild(e("div",{style:"flex:1;min-width:160px"},[
+    e("div",{style:"font-weight:700;font-size:14px;color:#E2E8F0"},biz.name),
+    e("div",{style:"font-size:11px;color:#64748B"},biz.owner_email||"—"),
+  ]));
+  topLine.appendChild(e("div",{style:"display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap"},[
+    e("div",{style:"font-size:11px;color:#94A3B8"},biz.employee_count+" עובדים"),
+    e("div",{style:`background:${planColor}22;color:${planColor};border:1px solid ${planColor}44;border-radius:8px;padding:2px 10px;font-size:11px;font-weight:800`},PLAN_LABELS[biz.plan]||biz.plan),
+    _planSelector(biz),
+  ]));
+  row.appendChild(topLine);
+
+  // Expiry controls (only for paid plans)
+  if (isPaid) {
+    const expiryRow = e("div",{style:"display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap"});
+    expiryRow.appendChild(e("span",{style:"font-size:11px;color:"+(isExpired?"#EF4444":"#94A3B8")},expiryLabel));
+
+    // Date picker
+    const dateVal = expires ? expires.toISOString().slice(0,10) : "";
+    const dateInp = e("input",{
+      type:"date",
+      value:dateVal,
+      style:"background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E2E8F0;font-size:11px;padding:3px 8px;font-family:inherit"
+    });
+    expiryRow.appendChild(dateInp);
+
+    expiryRow.appendChild(btn("btn-sm btn-sm-blue","שמור תאריך", async () => {
+      const val = dateInp.value;
+      const ts = val ? new Date(val+"T23:59:59").toISOString() : null;
+      const { error } = await sb.rpc('set_plan_expires',{p_business_id:biz.id, p_expires_at:ts});
+      if (error) { _toast("שגיאה: "+error.message,"err"); return; }
+      biz.plan_expires_at = ts;
+      _toast("תאריך תפוגה עודכן ✓");
+      _render();
+    }));
+
+    expiryRow.appendChild(btn("btn-sm btn-sm-gray","♾️ ללא תפוגה", async () => {
+      const { error } = await sb.rpc('set_plan_expires',{p_business_id:biz.id, p_expires_at:null});
+      if (error) { _toast("שגיאה: "+error.message,"err"); return; }
+      biz.plan_expires_at = null;
+      dateInp.value = "";
+      _toast("הוסר תאריך תפוגה — גישה לצמיתות ✓");
+      _render();
+    }));
+
+    row.appendChild(expiryRow);
+  }
+
+  card.appendChild(row);
 }
 
 function _planSelector(biz) {
