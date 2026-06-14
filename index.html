@@ -442,6 +442,37 @@ footer{
   .footer-grid{grid-template-columns:1fr}
   .footer-bottom{flex-direction:column;text-align:center}
 }
+
+/* ══ FAQ ══ */
+.faq-section{padding:96px 24px;background:var(--darker)}
+.faq-list{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.faq-item{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  transition:border-color 0.2s;
+}
+.faq-item.open{border-color:rgba(99,102,241,0.4)}
+.faq-q{
+  width:100%;display:flex;align-items:center;justify-content:space-between;
+  padding:20px 24px;background:none;border:none;cursor:pointer;
+  font-family:inherit;font-size:16px;font-weight:700;color:var(--text);
+  text-align:right;gap:16px;
+}
+.faq-q:hover{color:#fff}
+.faq-icon{
+  flex-shrink:0;width:28px;height:28px;border-radius:50%;
+  background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;color:var(--indigo);transition:transform 0.25s,background 0.2s;
+}
+.faq-item.open .faq-icon{transform:rotate(45deg);background:rgba(99,102,241,0.25)}
+.faq-a{
+  max-height:0;overflow:hidden;transition:max-height 0.3s ease,padding 0.3s;
+  font-size:14px;color:var(--muted);line-height:1.8;padding:0 24px;
+}
+.faq-item.open .faq-a{max-height:300px;padding:0 24px 20px}
 </style>
 </head>
 <body>
@@ -458,6 +489,7 @@ footer{
       <li><a href="#features">פיצ'רים</a></li>
       <li><a href="#how">איך זה עובד</a></li>
       <li><a href="#pricing">מחירים</a></li>
+      <li><a href="#faq">שאלות ותשובות</a></li>
       <li><a href="#contact">צור קשר</a></li>
     </ul>
 
@@ -793,6 +825,76 @@ footer{
   </div>
 </section>
 
+<!-- FAQ -->
+<section class="faq-section" id="faq">
+  <div class="section-inner">
+    <div class="section-header">
+      <div class="section-tag">FAQ</div>
+      <h2 class="section-h2">שאלות נפוצות</h2>
+      <p class="section-sub">לא מצאת תשובה? <a href="mailto:hello@shiftpro.co.il" style="color:var(--blue)">פנה אלינו</a></p>
+    </div>
+    <div class="faq-list">
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span>האם ניתן לנסות את המערכת בחינם?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-a">כן! מציעים 30 ימי ניסיון חינם ללא צורך בכרטיס אשראי. תוכלו לחקור את כל הפיצ'רים, לשבץ עובדים ולהרגיש את המערכת לפני שמחליטים.</div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span>כמה עובדים ניתן לנהל?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-a">בתוכנית החינמית עד 10 עובדים. בתוכנית Pro — עובדים ללא הגבלה. לארגונים גדולים עם מספר סניפים יש תוכנית Enterprise מותאמת אישית.</div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span>האם המערכת עובדת בטלפון נייד?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-a">בהחלט. המערכת היא אפליקציית PWA — ניתן להוסיף אותה למסך הבית בדיוק כמו אפליקציה רגילה, גם באייפון וגם באנדרואיד, ללא הורדה מחנות.</div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span>איך עובד השיבוץ האוטומטי?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-a">מנוע השיבוץ בודק 13 כללים בו-זמנית: זמינות עובדים, מגבלות שבועיות, חופשות מאושרות, מיומנויות נדרשות ויעדי כיסוי משמרות. בלחיצה אחת מתקבל סידור אופטימלי שניתן לעדן ידנית.</div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span>האם הנתונים שלי מאובטחים?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-a">כן. הנתונים מאוחסנים ב-Supabase על שרתים באירופה (Stockholm) עם הצפנה מלאה. כל עסק מבודד לחלוטין מהאחרים ברמת מסד הנתונים באמצעות Row Level Security.</div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span>מה קורה בסוף תקופת הניסיון?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-a">תקבלו התראה שבוע לפני הסיום. אם תבחרו להמשיך — תעברו לתוכנית Pro. אם לא — הנתונים נשמרים 30 יום נוספים ותוכלו לייצא אותם לפני המחיקה.</div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">
+          <span>האם ניתן לבטל בכל עת?</span>
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-a">כן, ביטול מיידי ללא קנסות. אין חוזה מינימום. אתם שולטים ויכולים לשנות תוכנית או לבטל בכל עת מתוך הגדרות החשבון.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
 <!-- CTA -->
 <section class="cta-section" id="contact">
   <div class="cta-inner">
@@ -897,6 +999,14 @@ document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.classList.add('active');
   });
 });
+
+// FAQ accordion
+function toggleFaq(btn) {
+  const item = btn.closest('.faq-item');
+  const isOpen = item.classList.contains('open');
+  document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
+  if (!isOpen) item.classList.add('open');
+}
 </script>
 </body>
 </html>
