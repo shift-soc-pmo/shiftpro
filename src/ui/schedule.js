@@ -539,19 +539,27 @@ export function viewCellEditor(date, shiftId) {
   const btnWrap = e("div");
   S.employees.forEach((emp, idx) => {
     const col = ec(idx);
-    const onVac = S.vacations.some(v=>v.employee_id===emp.id&&v.status==="approved"&&date>=v.start_date&&date<=v.end_date);
+    const vac = S.vacations.find(v=>v.employee_id===emp.id&&v.status==="approved"&&date>=v.start_date&&date<=v.end_date);
+    const onVac = !!vac;
+    const vacIcon = vac?.type === "reserve" ? "🎖️" : vac?.type === "exam" ? "📝" : "🌴";
+    const vacLabel = vac?.type === "reserve" ? "מילואים" : vac?.type === "exam" ? "מבחן" : "חופש";
     const isAssigned = assignedIds.includes(emp.id);
     const locked = S.lockedSlots[date+"|"+shiftId]?.has(emp.id);
 
     const chip = e("button",{
       class:"cell-emp-btn"+(isAssigned?" assigned":""),
-      style:`background:${isAssigned?col+"33":"#0F172A"};border:1px solid ${isAssigned?col:col+"44"};color:${col};opacity:${onVac?0.4:1}`,
-      disabled: onVac,
-      onclick: () => toggleCellEmp(date, shiftId, emp.id)
+      style:`background:${isAssigned?col+"33":"#0F172A"};border:1px solid ${isAssigned?col:col+"44"};color:${col};opacity:${onVac && !isAssigned ? 0.7 : 1}`,
+      title: onVac ? emp.name+" ב"+vacLabel+" בתאריך זה" : "",
+      onclick: () => {
+        if (onVac && !isAssigned) {
+          if (!confirm("⚠️ אזהרה: " + emp.name + " ב" + vacLabel + " בתאריך " + fmtDate(date) + ".\n\nלשבץ בכל זאת?")) return;
+        }
+        toggleCellEmp(date, shiftId, emp.id);
+      }
     },[
       e("span",{style:`width:7px;height:7px;border-radius:50%;background:${col}`},""),
       e("span",{},emp.name),
-      onVac ? e("span",{},"🌴") : null,
+      onVac ? e("span",{style:"font-size:11px",title:vacLabel},vacIcon) : null,
       locked ? e("span",{},"🔒") : null
     ]);
     btnWrap.appendChild(chip);

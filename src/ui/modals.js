@@ -351,6 +351,17 @@ export function viewPublishModal() {
 // ══════════════════════════════════════════════════════
 // EXPORT FUNCTIONS
 // ══════════════════════════════════════════════════════
+function _parseNote(rawNote) {
+  if (!rawNote) return { tags: [], text: "" };
+  if (rawNote.startsWith("🏷️ ")) {
+    const parts = rawNote.split(" | ");
+    const tags = parts[0].replace("🏷️ ","").split(", ").map(t=>t.trim()).filter(Boolean);
+    const text = parts.slice(1).join(" | ");
+    return { tags, text };
+  }
+  return { tags: [], text: rawNote };
+}
+
 export async function exportSchedulePDF(weekOffsetParam) {
   const offset = weekOffsetParam != null ? weekOffsetParam : S.weekOffset;
   const wd = getWeekDates(offset);
@@ -390,7 +401,13 @@ export async function exportSchedulePDF(weekOffsetParam) {
   .morning{background:#FEF3C7;color:#92400E}
   .afternoon{background:#D1FAE5;color:#065F46}
   .night{background:#EDE9FE;color:#4C1D95}
+  .morning2{background:#FED7AA;color:#9A3412}
   .empty{color:#ccc;font-size:11px}
+  .emp-block{display:block;padding:3px 0;border-bottom:1px dashed #eee;margin-bottom:2px}
+  .emp-block:last-child{border-bottom:none;margin-bottom:0}
+  .tag{display:inline-block;background:#DBEAFE;color:#1E40AF;border-radius:3px;padding:1px 5px;margin:1px;font-size:9px;font-weight:600}
+  .hours{font-size:9px;color:#666;display:block;margin-top:1px}
+  .note{font-size:9px;color:#92400E;font-style:italic;display:block;margin-top:1px}
   @media print{body{padding:0}}
 </style></head><body>
 <h1>סידור עבודה — ${S.business?.name||"ניהול משמרות"}</h1>
@@ -415,8 +432,14 @@ export async function exportSchedulePDF(weekOffsetParam) {
         empIds.forEach(id => {
           const emp = getEmp(id);
           const ch = S.customHours[date+"|"+sh.id+"|"+id];
+          const rawNote = S.assignmentNotes[date+"|"+sh.id+"|"+id] || "";
+          const { tags, text } = _parseNote(rawNote);
+          html += `<div class="emp-block">`;
           html += `<span class="chip ${sh.id}">${emp?.name||"?"}</span>`;
-          if (ch) html += `<br><small style="font-size:9px;color:#666">${ch.start}–${ch.end}</small>`;
+          if (ch) html += `<span class="hours">⏰ ${ch.start}–${ch.end}</span>`;
+          if (tags.length > 0) html += tags.map(t=>`<span class="tag">🏷️ ${t}</span>`).join("");
+          if (text) html += `<span class="note">📝 ${text}</span>`;
+          html += `</div>`;
         });
       }
       html += "</td>";
@@ -427,12 +450,26 @@ export async function exportSchedulePDF(weekOffsetParam) {
 <div style="margin-top:16px;font-size:11px;color:#999">הופק מ-ShiftPro · ${new Date().toLocaleDateString("he-IL")}</div>
 </body></html>`;
 
-  const win = window.open("","_blank");
-  if (!win) { _toast("אפשר חלונות קופצים בדפדפן","err"); return; }
-  win.document.write(html);
-  win.document.close();
-  setTimeout(()=>win.print(), 500);
-  _toast("פותח לייצוא PDF ✓");
+  const existingIframe = document.getElementById("__print_iframe");
+  if (existingIframe) existingIframe.remove();
+  const iframe = document.createElement("iframe");
+  iframe.id = "__print_iframe";
+  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0";
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+  doc.open(); doc.write(html); doc.close();
+  setTimeout(() => {
+    try { iframe.contentWindow.focus(); iframe.contentWindow.print(); }
+    catch(err) {
+      const blob = new Blob([html],{type:"text/html;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href=url; a.download=`seder_${weekStart}.html`; a.click();
+      URL.revokeObjectURL(url);
+      _toast("הורד כקובץ HTML ✓");
+    }
+    setTimeout(()=>iframe.remove(), 2000);
+  }, 800);
+  _toast("פתח להדפסה / שמירה כ-PDF ✓");
 }
 
 export async function exportScheduleCSV(weekOffsetParam) {
@@ -462,7 +499,18 @@ export async function exportScheduleCSV(weekOffsetParam) {
     const row = [sh.label, sh.start+"–"+sh.end];
     wd.forEach(date => {
       const empIds = scheduleData[date]?.[sh.id]||[];
-      row.push(empIds.map(id=>getEmp(id)?.name||"?").join(" + ")||"—");
+      row.push(empIds.map(id=>{
+        const emp = getEmp(id);
+        const name = emp?.name || "?";
+        const ch = S.customHours[date+"|"+sh.id+"|"+id];
+        const rawNote = S.assignmentNotes[date+"|"+sh.id+"|"+id] || "";
+        const { tags, text } = _parseNote(rawNote);
+        let entry = name;
+        if (ch) entry += ` [${ch.start}-${ch.end}]`;
+        if (tags.length > 0) entry += ` {${tags.join(", ")}}`;
+        if (text) entry += ` (${text})`;
+        return entry;
+      }).join(" + ")||"—");
     });
     csv += row.map(v=>"\""+v+"\"").join(",") + String.fromCharCode(10);
   });
