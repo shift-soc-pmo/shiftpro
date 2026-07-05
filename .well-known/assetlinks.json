@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.shiftpmosoc.twa",
+        "sha256_cert_fingerprints": ["BB:3C:47:20:56:51:04:7B:22:36:1E:34:C1:1D:85:6F:13:94:46:CA:A0:E0:B3:68:5F:45:B1:08:EA:A6:E8:F5"]
+      }
+    }]
